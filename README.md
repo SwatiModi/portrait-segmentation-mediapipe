@@ -4,4 +4,4 @@
 This repo contains the code for using a custon tflite model with the MediaPipe framework
 
 
-Checkout more about it in my blog here (https://blog.gofynd.com/mediapipe-with-custom-tflite-model-d3ea0427b3c1)
+Checkout more about it in my blog [here](https://blog.gofynd.com/mediapipe-with-custom-tflite-model-d3ea0427b3c1)
