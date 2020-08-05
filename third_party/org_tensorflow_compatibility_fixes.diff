@@ -1,0 +1,84 @@
+diff --git a/tensorflow/core/lib/monitoring/percentile_sampler.cc b/tensorflow/core/lib/monitoring/percentile_sampler.cc
+index b7c22ae77b..d0ba7b48b4 100644
+--- a/tensorflow/core/lib/monitoring/percentile_sampler.cc
++++ b/tensorflow/core/lib/monitoring/percentile_sampler.cc
+@@ -29,7 +29,8 @@ namespace monitoring {
+ void PercentileSamplerCell::Add(double sample) {
+   uint64 nstime = EnvTime::NowNanos();
+   mutex_lock l(mu_);
+-  samples_[next_position_] = {nstime, sample};
++  samples_[next_position_].nstime = nstime;
++  samples_[next_position_].value = sample;
+   ++next_position_;
+   if (TF_PREDICT_FALSE(next_position_ >= samples_.size())) {
+     next_position_ = 0;
+@@ -73,7 +74,9 @@ Percentiles PercentileSamplerCell::value() const {
+       size_t index = std::min<size_t>(
+           static_cast<size_t>(percentile * pct_samples.num_samples / 100.0),
+           pct_samples.num_samples - 1);
+-      PercentilePoint pct = {percentile, samples[index].value};
++      PercentilePoint pct;
++      pct.percentile = percentile;
++      pct.value = samples[index].value;
+       pct_samples.points.push_back(pct);
+     }
+   }
+diff --git a/tensorflow/lite/delegates/gpu/cl/api.cc b/tensorflow/lite/delegates/gpu/cl/api.cc
+index 09c82307a5..0318c1a447 100644
+--- a/tensorflow/lite/delegates/gpu/cl/api.cc
++++ b/tensorflow/lite/delegates/gpu/cl/api.cc
+@@ -352,10 +352,10 @@ class GlBufferHolder : public TensorTie {
+ };
+ 
+ TensorObject TensorToObj(const Tensor& tensor) {
+-  if (tensor.StorageType() == TensorStorageType::BUFFER) {
++  if (tensor.GetStorageType() == TensorStorageType::BUFFER) {
+     return OpenClBuffer{tensor.GetMemoryPtr()};
+   }
+-  if (tensor.StorageType() == TensorStorageType::IMAGE_BUFFER) {
++  if (tensor.GetStorageType() == TensorStorageType::IMAGE_BUFFER) {
+     return OpenClBuffer{tensor.GetMemoryPtrForWriting()};
+   }
+   return OpenClTexture{tensor.GetMemoryPtr()};
+@@ -516,9 +516,9 @@ TensorObjectDef TensorToDef(const Tensor& tensor) {
+   def.dimensions.h = tensor.Height();
+   def.dimensions.w = tensor.Width();
+   def.dimensions.c = tensor.Channels();
+-  def.object_def.data_layout = ToDataLayout(tensor.StorageType());
+-  def.object_def.data_type = tensor.DataType();
+-  def.object_def.object_type = ToObjectType(tensor.StorageType());
++  def.object_def.data_layout = ToDataLayout(tensor.GetStorageType());
++  def.object_def.data_type = tensor.GetDataType();
++  def.object_def.object_type = ToObjectType(tensor.GetStorageType());
+   def.object_def.user_provided = false;
+   return def;
+ }
+diff --git a/tensorflow/lite/delegates/gpu/cl/tensor.cc b/tensorflow/lite/delegates/gpu/cl/tensor.cc
+index 308e1b6920..9b613c63f7 100644
+--- a/tensorflow/lite/delegates/gpu/cl/tensor.cc
++++ b/tensorflow/lite/delegates/gpu/cl/tensor.cc
+@@ -29,7 +29,7 @@ namespace cl {
+ namespace {
+ 
+ absl::Status CreateImageBufferFromBuffer(const CLContext& context,
+-                                         cl_mem memory, enum DataType data_type,
++                                         cl_mem memory, DataType data_type,
+                                          int width, cl_mem* result) {
+   cl_image_format format;
+   cl_image_desc desc;
+diff --git a/tensorflow/lite/delegates/gpu/cl/tensor.h b/tensorflow/lite/delegates/gpu/cl/tensor.h
+index a27c54a74e..39d3a04a47 100644
+--- a/tensorflow/lite/delegates/gpu/cl/tensor.h
++++ b/tensorflow/lite/delegates/gpu/cl/tensor.h
+@@ -75,8 +75,8 @@ class Tensor {
+   int4 GetWHSB() const { return int4(shape_.w, shape_.h, Slices(), shape_.b); }
+   int4 GetWHDS() const { return int4(shape_.w, shape_.h, shape_.d, Slices()); }
+ 
+-  enum DataType DataType() const { return descriptor_.data_type; }
+-  TensorStorageType StorageType() const { return descriptor_.storage_type; }
++  DataType GetDataType() const { return descriptor_.data_type; }
++  TensorStorageType GetStorageType() const { return descriptor_.storage_type; }
+ 
+   // for profiling and memory statistics
+   uint64_t GetMemorySizeInBytes() const;
+
