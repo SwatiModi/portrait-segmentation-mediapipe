@@ -18,6 +18,9 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "absl/container/flat_hash_set.h"
+#include "absl/container/node_hash_map.h"
+#include "absl/container/node_hash_set.h"
 #include "absl/strings/numbers.h"
 #include "mediapipe/calculators/video/box_tracker_calculator.pb.h"
 #include "mediapipe/framework/calculator_framework.h"
@@ -120,10 +123,10 @@ class BoxTrackerCalculator : public CalculatorBase {
  public:
   ~BoxTrackerCalculator() override = default;
 
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
 
  protected:
   void RenderStates(const std::vector<MotionBoxState>& states, cv::Mat* mat);
@@ -164,7 +167,7 @@ class BoxTrackerCalculator : public CalculatorBase {
   };
 
   // MotionBoxPath per unique id that we are tracking.
-  typedef std::unordered_map<int, MotionBoxPath> MotionBoxMap;
+  typedef absl::node_hash_map<int, MotionBoxPath> MotionBoxMap;
 
   // Performs tracking of all MotionBoxes in box_map by one frame forward or
   // backward to or from data_frame_num using passed TrackingData.
@@ -193,19 +196,19 @@ class BoxTrackerCalculator : public CalculatorBase {
   TimedBoxProtoList initial_pos_;
 
   // Keeps tracks boxes that have already been initialized.
-  std::unordered_set<int> initialized_ids_;
+  absl::node_hash_set<int> initialized_ids_;
 
   // Non empty for batch mode tracking.
   std::string cache_dir_;
   // Ids to be tracked in batch_mode.
-  std::unordered_set<int> batch_track_ids_;
+  absl::node_hash_set<int> batch_track_ids_;
 
   int frame_num_ = 0;
 
   // Boxes that are tracked in streaming mode.
   MotionBoxMap streaming_motion_boxes_;
 
-  std::unordered_map<int, std::pair<TimedBox, TimedBox>> last_tracked_boxes_;
+  absl::node_hash_map<int, std::pair<TimedBox, TimedBox>> last_tracked_boxes_;
   int frame_num_since_reset_ = 0;
 
   // Cache used during streaming mode for fast forward tracking.
@@ -236,6 +239,11 @@ class BoxTrackerCalculator : public CalculatorBase {
 
   // Queued track time requests.
   std::vector<Timestamp> queued_track_requests_;
+
+  // Stores the tracked ids that have been discarded actively, from continuous
+  // tracking data. It may accumulate across multiple frames. Once consumed, it
+  // should be cleared immediately.
+  absl::flat_hash_set<int> actively_discarded_tracked_ids_;
 
   // Add smooth transition between re-acquisition and previous tracked boxes.
   // `result_box` is the tracking result of one specific timestamp. The smoothed
@@ -284,6 +292,22 @@ const int BoxTrackerCalculator::kTrackTimestampsMinQueueSize = 2;
 const int BoxTrackerCalculator::kMotionBoxPathMinQueueSize = 2;
 
 namespace {
+
+constexpr char kCacheDirTag[] = "CACHE_DIR";
+constexpr char kInitialPosTag[] = "INITIAL_POS";
+constexpr char kRaBoxesTag[] = "RA_BOXES";
+constexpr char kBoxesTag[] = "BOXES";
+constexpr char kVizTag[] = "VIZ";
+constexpr char kRaTrackProtoStringTag[] = "RA_TRACK_PROTO_STRING";
+constexpr char kRaTrackTag[] = "RA_TRACK";
+constexpr char kCancelObjectIdTag[] = "CANCEL_OBJECT_ID";
+constexpr char kRestartPosTag[] = "RESTART_POS";
+constexpr char kStartPosProtoStringTag[] = "START_POS_PROTO_STRING";
+constexpr char kStartPosTag[] = "START_POS";
+constexpr char kStartTag[] = "START";
+constexpr char kVideoTag[] = "VIDEO";
+constexpr char kTrackTimeTag[] = "TRACK_TIME";
+constexpr char kTrackingTag[] = "TRACKING";
 
 // Convert box position according to rotation angle in degrees.
 void ConvertCoordinateForRotation(float in_top, float in_left, float in_bottom,
@@ -365,93 +389,93 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
 
 }  // namespace.
 
-::mediapipe::Status BoxTrackerCalculator::GetContract(CalculatorContract* cc) {
-  if (cc->Inputs().HasTag("TRACKING")) {
-    cc->Inputs().Tag("TRACKING").Set<TrackingData>();
+absl::Status BoxTrackerCalculator::GetContract(CalculatorContract* cc) {
+  if (cc->Inputs().HasTag(kTrackingTag)) {
+    cc->Inputs().Tag(kTrackingTag).Set<TrackingData>();
   }
 
-  if (cc->Inputs().HasTag("TRACK_TIME")) {
-    RET_CHECK(cc->Inputs().HasTag("TRACKING"))
+  if (cc->Inputs().HasTag(kTrackTimeTag)) {
+    RET_CHECK(cc->Inputs().HasTag(kTrackingTag))
         << "TRACK_TIME needs TRACKING input";
-    cc->Inputs().Tag("TRACK_TIME").SetAny();
+    cc->Inputs().Tag(kTrackTimeTag).SetAny();
   }
 
-  if (cc->Inputs().HasTag("VIDEO")) {
-    cc->Inputs().Tag("VIDEO").Set<ImageFrame>();
+  if (cc->Inputs().HasTag(kVideoTag)) {
+    cc->Inputs().Tag(kVideoTag).Set<ImageFrame>();
   }
 
-  if (cc->Inputs().HasTag("START")) {
+  if (cc->Inputs().HasTag(kStartTag)) {
     // Actual packet content does not matter.
-    cc->Inputs().Tag("START").SetAny();
+    cc->Inputs().Tag(kStartTag).SetAny();
   }
 
-  if (cc->Inputs().HasTag("START_POS")) {
-    cc->Inputs().Tag("START_POS").Set<TimedBoxProtoList>();
+  if (cc->Inputs().HasTag(kStartPosTag)) {
+    cc->Inputs().Tag(kStartPosTag).Set<TimedBoxProtoList>();
   }
 
-  if (cc->Inputs().HasTag("START_POS_PROTO_STRING")) {
-    cc->Inputs().Tag("START_POS_PROTO_STRING").Set<std::string>();
+  if (cc->Inputs().HasTag(kStartPosProtoStringTag)) {
+    cc->Inputs().Tag(kStartPosProtoStringTag).Set<std::string>();
   }
 
-  if (cc->Inputs().HasTag("RESTART_POS")) {
-    cc->Inputs().Tag("RESTART_POS").Set<TimedBoxProtoList>();
+  if (cc->Inputs().HasTag(kRestartPosTag)) {
+    cc->Inputs().Tag(kRestartPosTag).Set<TimedBoxProtoList>();
   }
 
-  if (cc->Inputs().HasTag("CANCEL_OBJECT_ID")) {
-    cc->Inputs().Tag("CANCEL_OBJECT_ID").Set<int>();
+  if (cc->Inputs().HasTag(kCancelObjectIdTag)) {
+    cc->Inputs().Tag(kCancelObjectIdTag).Set<int>();
   }
 
-  if (cc->Inputs().HasTag("RA_TRACK")) {
-    cc->Inputs().Tag("RA_TRACK").Set<TimedBoxProtoList>();
+  if (cc->Inputs().HasTag(kRaTrackTag)) {
+    cc->Inputs().Tag(kRaTrackTag).Set<TimedBoxProtoList>();
   }
 
-  if (cc->Inputs().HasTag("RA_TRACK_PROTO_STRING")) {
-    cc->Inputs().Tag("RA_TRACK_PROTO_STRING").Set<std::string>();
+  if (cc->Inputs().HasTag(kRaTrackProtoStringTag)) {
+    cc->Inputs().Tag(kRaTrackProtoStringTag).Set<std::string>();
   }
 
-  if (cc->Outputs().HasTag("VIZ")) {
-    RET_CHECK(cc->Inputs().HasTag("VIDEO"))
+  if (cc->Outputs().HasTag(kVizTag)) {
+    RET_CHECK(cc->Inputs().HasTag(kVideoTag))
         << "Output stream VIZ requires VIDEO to be present.";
-    cc->Outputs().Tag("VIZ").Set<ImageFrame>();
+    cc->Outputs().Tag(kVizTag).Set<ImageFrame>();
   }
 
-  if (cc->Outputs().HasTag("BOXES")) {
-    cc->Outputs().Tag("BOXES").Set<TimedBoxProtoList>();
+  if (cc->Outputs().HasTag(kBoxesTag)) {
+    cc->Outputs().Tag(kBoxesTag).Set<TimedBoxProtoList>();
   }
 
-  if (cc->Outputs().HasTag("RA_BOXES")) {
-    cc->Outputs().Tag("RA_BOXES").Set<TimedBoxProtoList>();
+  if (cc->Outputs().HasTag(kRaBoxesTag)) {
+    cc->Outputs().Tag(kRaBoxesTag).Set<TimedBoxProtoList>();
   }
 
 #if defined(__ANDROID__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
-  RET_CHECK(!cc->InputSidePackets().HasTag("INITIAL_POS"))
+  RET_CHECK(!cc->InputSidePackets().HasTag(kInitialPosTag))
       << "Unsupported on mobile";
 #else
-  if (cc->InputSidePackets().HasTag("INITIAL_POS")) {
-    cc->InputSidePackets().Tag("INITIAL_POS").Set<std::string>();
+  if (cc->InputSidePackets().HasTag(kInitialPosTag)) {
+    cc->InputSidePackets().Tag(kInitialPosTag).Set<std::string>();
   }
 #endif  // defined(__ANDROID__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
 
-  if (cc->InputSidePackets().HasTag("CACHE_DIR")) {
-    cc->InputSidePackets().Tag("CACHE_DIR").Set<std::string>();
+  if (cc->InputSidePackets().HasTag(kCacheDirTag)) {
+    cc->InputSidePackets().Tag(kCacheDirTag).Set<std::string>();
   }
 
-  RET_CHECK(cc->Inputs().HasTag("TRACKING") !=
-            cc->InputSidePackets().HasTag("CACHE_DIR"))
+  RET_CHECK(cc->Inputs().HasTag(kTrackingTag) !=
+            cc->InputSidePackets().HasTag(kCacheDirTag))
       << "Either TRACKING or CACHE_DIR needs to be specified.";
 
   if (cc->InputSidePackets().HasTag(kOptionsTag)) {
     cc->InputSidePackets().Tag(kOptionsTag).Set<CalculatorOptions>();
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status BoxTrackerCalculator::Open(CalculatorContext* cc) {
+absl::Status BoxTrackerCalculator::Open(CalculatorContext* cc) {
   options_ = tool::RetrieveOptions(cc->Options<BoxTrackerCalculatorOptions>(),
                                    cc->InputSidePackets(), kOptionsTag);
 
-  RET_CHECK(!cc->InputSidePackets().HasTag("INITIAL_POS") ||
+  RET_CHECK(!cc->InputSidePackets().HasTag(kInitialPosTag) ||
             !options_.has_initial_position())
       << "Can not specify initial position as side packet and via options";
 
@@ -460,11 +484,11 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
   }
 
 #if !defined(__ANDROID__) && !defined(__APPLE__) && !defined(__EMSCRIPTEN__)
-  if (cc->InputSidePackets().HasTag("INITIAL_POS")) {
+  if (cc->InputSidePackets().HasTag(kInitialPosTag)) {
     LOG(INFO) << "Parsing: "
-              << cc->InputSidePackets().Tag("INITIAL_POS").Get<std::string>();
+              << cc->InputSidePackets().Tag(kInitialPosTag).Get<std::string>();
     initial_pos_ = ParseTextProtoOrDie<TimedBoxProtoList>(
-        cc->InputSidePackets().Tag("INITIAL_POS").Get<std::string>());
+        cc->InputSidePackets().Tag(kInitialPosTag).Get<std::string>());
   }
 #endif  // !defined(__ANDROID__) && !defined(__APPLE__) &&
         // !defined(__EMSCRIPTEN__)
@@ -476,10 +500,11 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
   }
 
   visualize_tracking_data_ =
-      options_.visualize_tracking_data() && cc->Outputs().HasTag("VIZ");
-  visualize_state_ = options_.visualize_state() && cc->Outputs().HasTag("VIZ");
+      options_.visualize_tracking_data() && cc->Outputs().HasTag(kVizTag);
+  visualize_state_ =
+      options_.visualize_state() && cc->Outputs().HasTag(kVizTag);
   visualize_internal_state_ =
-      options_.visualize_internal_state() && cc->Outputs().HasTag("VIZ");
+      options_.visualize_internal_state() && cc->Outputs().HasTag(kVizTag);
 
   // Force recording of internal state for rendering.
   if (visualize_internal_state_) {
@@ -492,8 +517,8 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
     options_.mutable_tracker_options()->set_record_path_states(true);
   }
 
-  if (cc->InputSidePackets().HasTag("CACHE_DIR")) {
-    cache_dir_ = cc->InputSidePackets().Tag("CACHE_DIR").Get<std::string>();
+  if (cc->InputSidePackets().HasTag(kCacheDirTag)) {
+    cache_dir_ = cc->InputSidePackets().Tag(kCacheDirTag).Get<std::string>();
     RET_CHECK(!cache_dir_.empty());
     box_tracker_.reset(new BoxTracker(cache_dir_, options_.tracker_options()));
   } else {
@@ -503,14 +528,14 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
   }
 
   if (options_.streaming_track_data_cache_size() > 0) {
-    RET_CHECK(!cc->InputSidePackets().HasTag("CACHE_DIR"))
+    RET_CHECK(!cc->InputSidePackets().HasTag(kCacheDirTag))
         << "Streaming mode not compatible with cache dir.";
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status BoxTrackerCalculator::Process(CalculatorContext* cc) {
+absl::Status BoxTrackerCalculator::Process(CalculatorContext* cc) {
   // Batch mode, issue tracking requests.
   if (box_tracker_ && !tracking_issued_) {
     for (const auto& pos : initial_pos_.box()) {
@@ -522,14 +547,14 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
   const Timestamp& timestamp = cc->InputTimestamp();
   if (timestamp == Timestamp::PreStream()) {
     // Indicator packet.
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  InputStream* track_stream = cc->Inputs().HasTag("TRACKING")
-                                  ? &(cc->Inputs().Tag("TRACKING"))
+  InputStream* track_stream = cc->Inputs().HasTag(kTrackingTag)
+                                  ? &(cc->Inputs().Tag(kTrackingTag))
                                   : nullptr;
-  InputStream* track_time_stream = cc->Inputs().HasTag("TRACK_TIME")
-                                       ? &(cc->Inputs().Tag("TRACK_TIME"))
+  InputStream* track_time_stream = cc->Inputs().HasTag(kTrackTimeTag)
+                                       ? &(cc->Inputs().Tag(kTrackTimeTag))
                                        : nullptr;
 
   // Cache tracking data if possible.
@@ -554,8 +579,8 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
     }
   }
 
-  InputStream* start_pos_stream = cc->Inputs().HasTag("START_POS")
-                                      ? &(cc->Inputs().Tag("START_POS"))
+  InputStream* start_pos_stream = cc->Inputs().HasTag(kStartPosTag)
+                                      ? &(cc->Inputs().Tag(kStartPosTag))
                                       : nullptr;
 
   MotionBoxMap fast_forward_boxes;
@@ -567,8 +592,8 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
   }
 
   InputStream* start_pos_proto_string_stream =
-      cc->Inputs().HasTag("START_POS_PROTO_STRING")
-          ? &(cc->Inputs().Tag("START_POS_PROTO_STRING"))
+      cc->Inputs().HasTag(kStartPosProtoStringTag)
+          ? &(cc->Inputs().Tag(kStartPosProtoStringTag))
           : nullptr;
   if (start_pos_stream == nullptr || start_pos_stream->IsEmpty()) {
     if (start_pos_proto_string_stream &&
@@ -581,8 +606,8 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
     }
   }
 
-  InputStream* restart_pos_stream = cc->Inputs().HasTag("RESTART_POS")
-                                        ? &(cc->Inputs().Tag("RESTART_POS"))
+  InputStream* restart_pos_stream = cc->Inputs().HasTag(kRestartPosTag)
+                                        ? &(cc->Inputs().Tag(kRestartPosTag))
                                         : nullptr;
 
   if (restart_pos_stream && !restart_pos_stream->IsEmpty()) {
@@ -592,8 +617,8 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
   }
 
   InputStream* cancel_object_id_stream =
-      cc->Inputs().HasTag("CANCEL_OBJECT_ID")
-          ? &(cc->Inputs().Tag("CANCEL_OBJECT_ID"))
+      cc->Inputs().HasTag(kCancelObjectIdTag)
+          ? &(cc->Inputs().Tag(kCancelObjectIdTag))
           : nullptr;
   if (cancel_object_id_stream && !cancel_object_id_stream->IsEmpty()) {
     const int cancel_object_id = cancel_object_id_stream->Get<int>();
@@ -608,8 +633,8 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
 
   TrackingData track_data_to_render;
 
-  if (cc->Outputs().HasTag("VIZ")) {
-    InputStream* video_stream = &(cc->Inputs().Tag("VIDEO"));
+  if (cc->Outputs().HasTag(kVizTag)) {
+    InputStream* video_stream = &(cc->Inputs().Tag(kVideoTag));
     if (!video_stream->IsEmpty()) {
       input_view = formats::MatView(&video_stream->Get<ImageFrame>());
 
@@ -737,7 +762,7 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
       ++frame_num_since_reset_;
 
       // Generate results for queued up request.
-      if (cc->Outputs().HasTag("BOXES") && !queued_track_requests_.empty()) {
+      if (cc->Outputs().HasTag(kBoxesTag) && !queued_track_requests_.empty()) {
         for (int j = 0; j < queued_track_requests_.size(); ++j) {
           const Timestamp& past_time = queued_track_requests_[j];
           RET_CHECK(past_time.Value() < timestamp.Value())
@@ -762,7 +787,7 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
           }
 
           // Output for every time.
-          cc->Outputs().Tag("BOXES").Add(past_box_list.release(), past_time);
+          cc->Outputs().Tag(kBoxesTag).Add(past_box_list.release(), past_time);
         }
 
         queued_track_requests_.clear();
@@ -837,8 +862,8 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
   }
 
   // Handle random access track requests.
-  InputStream* ra_track_stream = cc->Inputs().HasTag("RA_TRACK")
-                                     ? &(cc->Inputs().Tag("RA_TRACK"))
+  InputStream* ra_track_stream = cc->Inputs().HasTag(kRaTrackTag)
+                                     ? &(cc->Inputs().Tag(kRaTrackTag))
                                      : nullptr;
 
   if (ra_track_stream && !ra_track_stream->IsEmpty()) {
@@ -853,8 +878,8 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
   }
 
   InputStream* ra_track_proto_string_stream =
-      cc->Inputs().HasTag("RA_TRACK_PROTO_STRING")
-          ? &(cc->Inputs().Tag("RA_TRACK_PROTO_STRING"))
+      cc->Inputs().HasTag(kRaTrackProtoStringTag)
+          ? &(cc->Inputs().Tag(kRaTrackProtoStringTag))
           : nullptr;
   if (ra_track_stream == nullptr || ra_track_stream->IsEmpty()) {
     if (ra_track_proto_string_stream &&
@@ -873,18 +898,18 @@ void AddStateToPath(const MotionBoxState& state, int64 time_msec,
 
   // Always output in batch, only output in streaming if tracking data
   // is present (might be in fast forward mode instead).
-  if (cc->Outputs().HasTag("BOXES") &&
+  if (cc->Outputs().HasTag(kBoxesTag) &&
       (box_tracker_ || !track_stream->IsEmpty())) {
     std::unique_ptr<TimedBoxProtoList> boxes(new TimedBoxProtoList());
     *boxes = std::move(box_track_list);
-    cc->Outputs().Tag("BOXES").Add(boxes.release(), timestamp);
+    cc->Outputs().Tag(kBoxesTag).Add(boxes.release(), timestamp);
   }
 
   if (viz_frame) {
-    cc->Outputs().Tag("VIZ").Add(viz_frame.release(), timestamp);
+    cc->Outputs().Tag(kVizTag).Add(viz_frame.release(), timestamp);
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 void BoxTrackerCalculator::AddSmoothTransitionToOutputBox(
@@ -993,7 +1018,7 @@ void BoxTrackerCalculator::OutputRandomAccessTrack(
   }
 
   cc->Outputs()
-      .Tag("RA_BOXES")
+      .Tag(kRaBoxesTag)
       .Add(result_list.release(), cc->InputTimestamp());
 }
 
@@ -1143,9 +1168,16 @@ void BoxTrackerCalculator::StreamTrack(const TrackingData& data,
   CHECK(box_map);
   CHECK(failed_ids);
 
+  // Cache the actively discarded tracked ids from the new tracking data.
+  for (const int discarded_id :
+       data.motion_data().actively_discarded_tracked_ids()) {
+    actively_discarded_tracked_ids_.insert(discarded_id);
+  }
+
   // Track all existing boxes by one frame.
   MotionVectorFrame mvf;  // Holds motion from current to previous frame.
   MotionVectorFrameFromTrackingData(data, &mvf);
+  mvf.actively_discarded_tracked_ids = &actively_discarded_tracked_ids_;
 
   if (forward) {
     MotionVectorFrame mvf_inverted;

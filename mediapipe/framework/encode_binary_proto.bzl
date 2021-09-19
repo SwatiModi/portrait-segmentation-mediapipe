@@ -1,3 +1,17 @@
+# Copyright 2019-2020 The MediaPipe Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """A rule for encoding a text format protocol buffer into binary.
 
 Example usage:
@@ -65,13 +79,10 @@ def _get_proto_provider(dep):
 
 def _encode_binary_proto_impl(ctx):
     """Implementation of the encode_binary_proto rule."""
-    all_protos = depset()
-    for dep in ctx.attr.deps:
-        provider = _get_proto_provider(dep)
-        all_protos = depset(
-            direct = [],
-            transitive = [all_protos, provider.transitive_sources],
-        )
+    all_protos = depset(
+        direct = [],
+        transitive = [_get_proto_provider(dep).transitive_sources for dep in ctx.attr.deps],
+    )
 
     textpb = ctx.file.input
     binarypb = ctx.outputs.output or ctx.actions.declare_file(
@@ -106,7 +117,7 @@ def _encode_binary_proto_impl(ctx):
         data_runfiles = ctx.runfiles(transitive_files = output_depset),
     )]
 
-encode_binary_proto = rule(
+_encode_binary_proto = rule(
     implementation = _encode_binary_proto_impl,
     attrs = {
         "_proto_compiler": attr.label(
@@ -127,6 +138,15 @@ encode_binary_proto = rule(
         "output": attr.output(),
     },
 )
+
+def encode_binary_proto(name, input, message_type, deps, **kwargs):
+    _encode_binary_proto(
+        name = name,
+        input = input,
+        message_type = message_type,
+        deps = deps,
+        **kwargs
+    )
 
 def _generate_proto_descriptor_set_impl(ctx):
     """Implementation of the generate_proto_descriptor_set rule."""

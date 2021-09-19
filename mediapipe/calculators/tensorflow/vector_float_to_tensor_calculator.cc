@@ -44,17 +44,17 @@ namespace tf = ::tensorflow;
 // }
 class VectorFloatToTensorCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
 
  private:
   VectorFloatToTensorCalculatorOptions options_;
 };
 REGISTER_CALCULATOR(VectorFloatToTensorCalculator);
 
-::mediapipe::Status VectorFloatToTensorCalculator::GetContract(
+absl::Status VectorFloatToTensorCalculator::GetContract(
     CalculatorContract* cc) {
   const auto& options = cc->Options<VectorFloatToTensorCalculatorOptions>();
   // Start with only one input packet.
@@ -75,27 +75,27 @@ REGISTER_CALCULATOR(VectorFloatToTensorCalculator);
   cc->Outputs().Index(0).Set<tf::Tensor>(
       // Output stream with data as tf::Tensor and the same TimeSeriesHeader.
   );
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status VectorFloatToTensorCalculator::Open(CalculatorContext* cc) {
+absl::Status VectorFloatToTensorCalculator::Open(CalculatorContext* cc) {
   options_ = cc->Options<VectorFloatToTensorCalculatorOptions>();
-  return ::mediapipe::OkStatus();
+  cc->SetOffset(0);
+  return absl::OkStatus();
 }
 
-::mediapipe::Status VectorFloatToTensorCalculator::Process(
-    CalculatorContext* cc) {
+absl::Status VectorFloatToTensorCalculator::Process(CalculatorContext* cc) {
   tf::TensorShape tensor_shape;
   if (options_.input_size() == INPUT_2D) {
     const std::vector<std::vector<float>>& input =
         cc->Inputs().Index(0).Value().Get<std::vector<std::vector<float>>>();
 
     const int32 rows = input.size();
-    CHECK_GE(rows, 1);
+    RET_CHECK_GE(rows, 1);
     const int32 cols = input[0].size();
-    CHECK_GE(cols, 1);
+    RET_CHECK_GE(cols, 1);
     for (int i = 1; i < rows; ++i) {
-      CHECK_EQ(input[i].size(), cols);
+      RET_CHECK_EQ(input[i].size(), cols);
     }
     if (options_.transpose()) {
       tensor_shape = tf::TensorShape({cols, rows});
@@ -116,7 +116,7 @@ REGISTER_CALCULATOR(VectorFloatToTensorCalculator);
   } else if (options_.input_size() == INPUT_1D) {
     const std::vector<float>& input =
         cc->Inputs().Index(0).Value().Get<std::vector<float>>();
-    CHECK_GE(input.size(), 1);
+    RET_CHECK_GE(input.size(), 1);
     const int32 length = input.size();
     tensor_shape = tf::TensorShape({length});
     auto output = ::absl::make_unique<tf::Tensor>(tf::DT_FLOAT, tensor_shape);
@@ -127,7 +127,7 @@ REGISTER_CALCULATOR(VectorFloatToTensorCalculator);
   } else {
     LOG(FATAL) << "input size not supported";
   }
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace mediapipe

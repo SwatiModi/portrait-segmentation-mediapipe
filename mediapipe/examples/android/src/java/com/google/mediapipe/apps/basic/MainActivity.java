@@ -46,6 +46,14 @@ public class MainActivity extends AppCompatActivity {
   // NOTE: use "flipFramesVertically" in manifest metadata to override this behavior.
   private static final boolean FLIP_FRAMES_VERTICALLY = true;
 
+  // Number of output frames allocated in ExternalTextureConverter.
+  // NOTE: use "converterNumBuffers" in manifest metadata to override number of buffers. For
+  // example, when there is a FlowLimiterCalculator in the graph, number of buffers should be at
+  // least `max_in_flight + max_in_queue + 1` (where max_in_flight and max_in_queue are used in
+  // FlowLimiterCalculator options). That's because we need buffers for all the frames that are in
+  // flight/queue plus one for the next frame from the camera.
+  private static final int NUM_BUFFERS = 2;
+
   static {
     // Load all native libraries needed by the app.
     System.loadLibrary("mediapipe_jni");
@@ -80,7 +88,7 @@ public class MainActivity extends AppCompatActivity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    setContentView(R.layout.activity_main);
+    setContentView(getContentViewLayoutResId());
 
     try {
       applicationInfo =
@@ -103,7 +111,6 @@ public class MainActivity extends AppCompatActivity {
             applicationInfo.metaData.getString("binaryGraphName"),
             applicationInfo.metaData.getString("inputVideoStreamName"),
             applicationInfo.metaData.getString("outputVideoStreamName"));
-
     processor
         .getVideoSurfaceOutput()
         .setFlipY(
@@ -112,10 +119,19 @@ public class MainActivity extends AppCompatActivity {
     PermissionHelper.checkAndRequestCameraPermissions(this);
   }
 
+  // Used to obtain the content view for this application. If you are extending this class, and
+  // have a custom layout, override this method and return the custom layout.
+  protected int getContentViewLayoutResId() {
+    return R.layout.activity_main;
+  }
+
   @Override
   protected void onResume() {
     super.onResume();
-    converter = new ExternalTextureConverter(eglManager.getContext());
+    converter =
+        new ExternalTextureConverter(
+            eglManager.getContext(),
+            applicationInfo.metaData.getInt("converterNumBuffers", NUM_BUFFERS));
     converter.setFlipY(
         applicationInfo.metaData.getBoolean("flipFramesVertically", FLIP_FRAMES_VERTICALLY));
     converter.setConsumer(processor);
@@ -128,6 +144,9 @@ public class MainActivity extends AppCompatActivity {
   protected void onPause() {
     super.onPause();
     converter.close();
+
+    // Hide preview display until we re-open the camera again.
+    previewDisplayView.setVisibility(View.GONE);
   }
 
   @Override
@@ -150,6 +169,7 @@ public class MainActivity extends AppCompatActivity {
 
   public void startCamera() {
     cameraHelper = new CameraXPreviewHelper();
+    previewFrameTexture = converter.getSurfaceTexture();
     cameraHelper.setOnCameraStartedListener(
         surfaceTexture -> {
           onCameraStarted(surfaceTexture);
@@ -159,7 +179,7 @@ public class MainActivity extends AppCompatActivity {
             ? CameraHelper.CameraFacing.FRONT
             : CameraHelper.CameraFacing.BACK;
     cameraHelper.startCamera(
-        this, cameraFacing, /*surfaceTexture=*/ null, cameraTargetResolution());
+        this, cameraFacing, previewFrameTexture, cameraTargetResolution());
   }
 
   protected Size computeViewSize(int width, int height) {
@@ -175,11 +195,8 @@ public class MainActivity extends AppCompatActivity {
     Size displaySize = cameraHelper.computeDisplaySizeFromViewSize(viewSize);
     boolean isCameraRotated = cameraHelper.isCameraRotated();
 
-    // Connect the converter to the camera-preview frames as its input (via
-    // previewFrameTexture), and configure the output width and height as the computed
-    // display size.
-    converter.setSurfaceTextureAndAttachToGLContext(
-        previewFrameTexture,
+    // Configure the output width and height as the computed display size.
+    converter.setDestinationSize(
         isCameraRotated ? displaySize.getHeight() : displaySize.getWidth(),
         isCameraRotated ? displaySize.getWidth() : displaySize.getHeight());
   }

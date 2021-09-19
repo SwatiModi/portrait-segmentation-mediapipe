@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 
+#include "absl/flags/flag.h"
 #include "mediapipe/framework/deps/file_path.h"
 #include "mediapipe/framework/port/file_helpers.h"
 #include "mediapipe/framework/port/gtest.h"

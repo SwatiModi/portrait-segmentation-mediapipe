@@ -14,7 +14,7 @@ load("//mediapipe/framework/port:build_config.bzl", "mediapipe_cc_proto_library"
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//mediapipe/examples:__subpackages__"])
 
@@ -46,7 +46,9 @@ proto_library(
 mediapipe_cc_proto_library(
     name = "kinematic_path_solver_cc_proto",
     srcs = ["kinematic_path_solver.proto"],
-    visibility = ["//mediapipe/examples:__subpackages__"],
+    visibility = [
+        "//mediapipe/examples:__subpackages__",
+    ],
     deps = [":kinematic_path_solver_proto"],
 )
 
@@ -96,11 +98,11 @@ cc_library(
     deps = [
         "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/formats:image_frame_opencv",
-        "//mediapipe/framework/port:commandlineflags",
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/flags:flag",
     ],
 )
 
@@ -252,6 +254,7 @@ cc_test(
         "//mediapipe/framework/port:file_helpers",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -279,13 +282,13 @@ cc_test(
         "//mediapipe/framework/deps:file_path",
         "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/formats:image_frame_opencv",
-        "//mediapipe/framework/port:commandlineflags",
         "//mediapipe/framework/port:file_helpers",
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:opencv_imgcodecs",
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
     ],
 )

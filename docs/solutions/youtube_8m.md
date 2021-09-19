@@ -2,14 +2,20 @@
 layout: default
 title: YouTube-8M Feature Extraction and Model Inference
 parent: Solutions
-nav_order: 11
+nav_order: 16
 ---
 
 # YouTube-8M Feature Extraction and Model Inference
 {: .no_toc }
 
+<details close markdown="block">
+  <summary>
+    Table of contents
+  </summary>
+  {: .text-delta }
 1. TOC
 {:toc}
+</details>
 ---
 
 MediaPipe is a useful and general framework for media processing that can assist

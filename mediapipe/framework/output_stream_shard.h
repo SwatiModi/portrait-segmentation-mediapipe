@@ -31,16 +31,16 @@ class OutputStreamManager;
 // The output stream spec shared across all output stream shards and their
 // output stream manager.
 struct OutputStreamSpec {
-  // Triggers the error callback with ::mediapipe::Status info when an error
+  // Triggers the error callback with absl::Status info when an error
   // occurs.
-  void TriggerErrorCallback(const ::mediapipe::Status& status) const {
+  void TriggerErrorCallback(const absl::Status& status) const {
     CHECK(error_callback);
     error_callback(status);
   }
 
   std::string name;
   const PacketType* packet_type;
-  std::function<void(::mediapipe::Status)> error_callback;
+  std::function<void(absl::Status)> error_callback;
   bool locked_intro_data;
   // Those three variables are the intro data protected by locked_intro_data.
   bool offset_enabled;
@@ -102,7 +102,7 @@ class OutputStreamShard : public OutputStream {
   // AddPacketInternal template is called by either AddPacket(Packet&& packet)
   // or AddPacket(const Packet& packet).
   template <typename T>
-  ::mediapipe::Status AddPacketInternal(T&& packet);
+  absl::Status AddPacketInternal(T&& packet);
 
   // Returns a pointer to the output queue.
   std::list<Packet>* OutputQueue() { return &output_queue_; }
@@ -117,6 +117,11 @@ class OutputStreamShard : public OutputStream {
   std::list<Packet> output_queue_;
   bool closed_;
   Timestamp next_timestamp_bound_;
+  // Equal to next_timestamp_bound_ only if the bound has been explicitly set
+  // by the calculator.  This is needed for parallel Process() calls,
+  // in order to avoid propagating the initial next_timestamp_bound_, which
+  // does not reflect the output of Process() for preceding timestamps.
+  Timestamp updated_next_timestamp_bound_;
 
   // Accesses OutputStreamShard for profiling.
   friend class GraphProfiler;

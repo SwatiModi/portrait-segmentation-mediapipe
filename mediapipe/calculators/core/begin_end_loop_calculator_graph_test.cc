@@ -42,22 +42,22 @@ REGISTER_CALCULATOR(BeginLoopIntegerCalculator);
 
 class IncrementCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).Set<int>();
     cc->Outputs().Index(0).Set<int>();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
+  absl::Status Open(CalculatorContext* cc) override {
     cc->SetOffset(TimestampDiff(0));
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     const int& input_int = cc->Inputs().Index(0).Get<int>();
     auto output_int = absl::make_unique<int>(input_int + 1);
     cc->Outputs().Index(0).Add(output_int.release(), cc->InputTimestamp());
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 
@@ -70,7 +70,7 @@ class BeginEndLoopCalculatorGraphTest : public ::testing::Test {
  protected:
   void SetUp() override {
     auto graph_config = ParseTextProtoOrDie<CalculatorGraphConfig>(
-        R"(
+        R"pb(
           num_threads: 4
           input_stream: "ints"
           node {
@@ -90,7 +90,7 @@ class BeginEndLoopCalculatorGraphTest : public ::testing::Test {
             input_stream: "BATCH_END:timestamp"
             output_stream: "ITERABLE:ints_plus_one"
           }
-        )");
+        )pb");
     tool::AddVectorSink("ints_plus_one", &graph_config, &output_packets_);
     MP_ASSERT_OK(graph_.Initialize(graph_config));
     MP_ASSERT_OK(graph_.StartRun({}));
@@ -166,19 +166,19 @@ TEST_F(BeginEndLoopCalculatorGraphTest, MultipleVectors) {
 // bound update.
 class PassThroughOrEmptyVectorCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->SetProcessTimestampBounds(true);
     cc->Inputs().Index(0).Set<std::vector<int>>();
     cc->Outputs().Index(0).Set<std::vector<int>>();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
+  absl::Status Open(CalculatorContext* cc) override {
     cc->SetOffset(TimestampDiff(0));
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     if (!cc->Inputs().Index(0).IsEmpty()) {
       cc->Outputs().Index(0).AddPacket(cc->Inputs().Index(0).Value());
     } else {
@@ -186,7 +186,7 @@ class PassThroughOrEmptyVectorCalculator : public CalculatorBase {
           MakePacket<std::vector<int>>(std::vector<int>())
               .At(cc->InputTimestamp()));
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 
@@ -197,7 +197,7 @@ class BeginEndLoopCalculatorGraphProcessingEmptyPacketsTest
  protected:
   void SetUp() override {
     auto graph_config = ParseTextProtoOrDie<CalculatorGraphConfig>(
-        R"(
+        R"pb(
           num_threads: 4
           input_stream: "ints"
           input_stream: "force_ints_to_be_timestamp_bound_update"
@@ -229,7 +229,7 @@ class BeginEndLoopCalculatorGraphProcessingEmptyPacketsTest
             input_stream: "ints_plus_one"
             output_stream: "ints_plus_one_passed_through"
           }
-        )");
+        )pb");
     tool::AddVectorSink("ints_plus_one_passed_through", &graph_config,
                         &output_packets_);
     MP_ASSERT_OK(graph_.Initialize(graph_config));
@@ -311,24 +311,24 @@ TEST_F(BeginEndLoopCalculatorGraphProcessingEmptyPacketsTest, MultipleVectors) {
 
 class MultiplierCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).Set<int>();
     cc->Inputs().Index(1).Set<int>();
     cc->Outputs().Index(0).Set<int>();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
+  absl::Status Open(CalculatorContext* cc) override {
     cc->SetOffset(TimestampDiff(0));
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     const int& input_int = cc->Inputs().Index(0).Get<int>();
     const int& multiplier_int = cc->Inputs().Index(1).Get<int>();
     auto output_int = absl::make_unique<int>(input_int * multiplier_int);
     cc->Outputs().Index(0).Add(output_int.release(), cc->InputTimestamp());
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 
@@ -338,7 +338,7 @@ class BeginEndLoopCalculatorGraphWithClonedInputsTest : public ::testing::Test {
  protected:
   void SetUp() override {
     auto graph_config = ParseTextProtoOrDie<CalculatorGraphConfig>(
-        R"(
+        R"pb(
           num_threads: 4
           input_stream: "ints"
           input_stream: "multiplier"
@@ -362,7 +362,7 @@ class BeginEndLoopCalculatorGraphWithClonedInputsTest : public ::testing::Test {
             input_stream: "BATCH_END:timestamp"
             output_stream: "ITERABLE:multiplied_ints"
           }
-        )");
+        )pb");
     tool::AddVectorSink("multiplied_ints", &graph_config, &output_packets_);
     MP_ASSERT_OK(graph_.Initialize(graph_config));
     MP_ASSERT_OK(graph_.StartRun({}));

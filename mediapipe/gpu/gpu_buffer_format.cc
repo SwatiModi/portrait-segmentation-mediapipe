@@ -37,6 +37,7 @@ static void AdaptGlTextureInfoForGLES2(GlTextureInfo* info) {
       info->gl_internal_format = info->gl_format = GL_LUMINANCE;
       return;
     case GL_RG16F:
+    case GL_RG32F:
       // Should this be GL_RG_EXT instead?
       info->gl_internal_format = info->gl_format = GL_LUMINANCE_ALPHA;
       return;
@@ -53,16 +54,6 @@ static void AdaptGlTextureInfoForGLES2(GlTextureInfo* info) {
 #endif  // GL_ES_VERSION_2_0
 
 const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
-                                                     int plane) {
-#if defined(__APPLE__) && TARGET_OS_OSX
-  constexpr GlVersion default_version = GlVersion::kGL;
-#else
-  constexpr GlVersion default_version = GlVersion::kGLES3;
-#endif  // defined(__APPLE__) && TARGET_OS_OSX
-  return GlTextureInfoForGpuBufferFormat(format, plane, default_version);
-}
-
-const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
                                                      int plane,
                                                      GlVersion gl_version) {
   // TODO: check/add more cases using info from
@@ -73,24 +64,36 @@ const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
           {GpuBufferFormat::kBGRA32,
            {
   // internal_format, format, type, downscale
-#ifdef __APPLE__
-               // On Apple platforms, the preferred transfer format is BGRA.
+#if MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER
+               // On Apple platforms, we have different code paths for iOS
+               // (using CVPixelBuffer) and on macOS (using GlTextureBuffer).
+               // When using CVPixelBuffer, the preferred transfer format is
+               // BGRA.
+               // TODO: Check iOS simulator.
                {GL_RGBA, GL_BGRA, GL_UNSIGNED_BYTE, 1},
 #else
                {GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, 1},
-#endif  // __APPLE__
+#endif  // MEDIAPIPE_GPU_BUFFER_USE_CV_PIXEL_BUFFER
            }},
           {GpuBufferFormat::kOneComponent8,
            {
-  // This should be GL_RED, but it would change the output for existing
-  // shaders. It would not be a good representation of a grayscale texture,
-  // unless we use texture swizzling. We could add swizzle parameters (e.g.
-  // GL_TEXTURE_SWIZZLE_R) in GLES 3 and desktop GL, and use GL_LUMINANCE
-  // in GLES 2. Or we could just punt and make it a red texture.
-  // {GL_R8, GL_RED, GL_UNSIGNED_BYTE, 1},
+  // This format is like RGBA grayscale: GL_LUMINANCE replicates
+  // the single channel texel values to RGB channels, and set alpha
+  // to 1.0. If it is desired to see only the texel values in the R
+  // channel, use kOneComponent8Red instead.
 #if !TARGET_OS_OSX
                {GL_LUMINANCE, GL_LUMINANCE, GL_UNSIGNED_BYTE, 1},
+#else
+               {GL_R8, GL_RED, GL_UNSIGNED_BYTE, 1},
 #endif  // TARGET_OS_OSX
+           }},
+          {GpuBufferFormat::kOneComponent8Red,
+           {
+               {GL_R8, GL_RED, GL_UNSIGNED_BYTE, 1},
+           }},
+          {GpuBufferFormat::kTwoComponent8,
+           {
+               {GL_RG8, GL_RG, GL_UNSIGNED_BYTE, 1},
            }},
 #ifdef __APPLE__
           // TODO: figure out GL_RED_EXT etc. on Android.
@@ -169,7 +172,9 @@ const GlTextureInfo& GlTextureInfoForGpuBufferFormat(GpuBufferFormat format,
   }
 
   auto iter = format_info->find(format);
-  CHECK(iter != format_info->end()) << "unsupported format";
+  CHECK(iter != format_info->end())
+      << "unsupported format: "
+      << static_cast<std::underlying_type_t<decltype(format)>>(format);
   const auto& planes = iter->second;
 #ifndef __APPLE__
   CHECK_EQ(planes.size(), 1)
@@ -198,6 +203,8 @@ ImageFormat::Format ImageFormatForGpuBufferFormat(GpuBufferFormat format) {
     case GpuBufferFormat::kTwoComponentFloat32:
       return ImageFormat::VEC32F2;
     case GpuBufferFormat::kGrayHalf16:
+    case GpuBufferFormat::kOneComponent8Red:
+    case GpuBufferFormat::kTwoComponent8:
     case GpuBufferFormat::kTwoComponentHalf16:
     case GpuBufferFormat::kRGBAHalf64:
     case GpuBufferFormat::kRGBAFloat128:

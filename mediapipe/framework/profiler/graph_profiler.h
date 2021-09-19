@@ -97,18 +97,8 @@ class GraphProfilerTestPeer;
 // The client can overwrite this by calling SetClock().
 class GraphProfiler : public std::enable_shared_from_this<ProfilingContext> {
  public:
-  GraphProfiler()
-      : is_initialized_(false),
-        is_profiling_(false),
-        calculator_profiles_(1000),
-        packets_info_(1000),
-        is_running_(false),
-        previous_log_end_time_(absl::InfinitePast()),
-        previous_log_index_(-1),
-        validated_graph_(nullptr) {
-    clock_ = std::shared_ptr<mediapipe::Clock>(
-        mediapipe::MonotonicClock::CreateSynchronizedMonotonicClock());
-  }
+  GraphProfiler();
+  ~GraphProfiler();
 
   // Not copyable or movable.
   GraphProfiler(const GraphProfiler&) = delete;
@@ -140,9 +130,9 @@ class GraphProfiler : public std::enable_shared_from_this<ProfilingContext> {
   // Process() and does NOT affect information for Open() and Close() methods.
   void Reset() ABSL_LOCKS_EXCLUDED(profiler_mutex_);
   // Begins profiling for a single graph run.
-  ::mediapipe::Status Start(::mediapipe::Executor* executor);
+  absl::Status Start(mediapipe::Executor* executor);
   // Ends profiling for a single graph run.
-  ::mediapipe::Status Stop();
+  absl::Status Stop();
 
   // Record a tracing event.
   void LogEvent(const TraceEvent& event);
@@ -150,12 +140,16 @@ class GraphProfiler : public std::enable_shared_from_this<ProfilingContext> {
   // Collects the runtime profile for Open(), Process(), and Close() of each
   // calculator in the graph. May be called at any time after the graph has been
   // initialized.
-  ::mediapipe::Status GetCalculatorProfiles(std::vector<CalculatorProfile>*)
-      const ABSL_LOCKS_EXCLUDED(profiler_mutex_);
+  absl::Status GetCalculatorProfiles(std::vector<CalculatorProfile>*) const
+      ABSL_LOCKS_EXCLUDED(profiler_mutex_);
+
+  // Records recent profiling and tracing data.  Includes events since the
+  // previous call to CaptureProfile.
+  absl::Status CaptureProfile(GraphProfile* result);
 
   // Writes recent profiling and tracing data to a file specified in the
   // ProfilerConfig.  Includes events since the previous call to WriteProfile.
-  ::mediapipe::Status WriteProfile();
+  absl::Status WriteProfile();
 
   // Returns the trace event buffer.
   GraphTracer* tracer() { return packet_tracer_.get(); }
@@ -226,6 +220,8 @@ class GraphProfiler : public std::enable_shared_from_this<ProfilingContext> {
     int64 start_time_usec_;
   };
 
+  const ProfilerConfig& profiler_config() { return profiler_config_; }
+
  private:
   // This can be used to add packet info for the input streams to the graph.
   // It treats the stream defined by |stream_name| as a stream produced by a
@@ -294,11 +290,12 @@ class GraphProfiler : public std::enable_shared_from_this<ProfilingContext> {
   // Helper method to get trace_log_path.  If the trace_log_path is empty and
   // tracing is enabled, this function returns a default platform dependent
   // trace_log_path.
-  ::mediapipe::StatusOr<std::string> GetTraceLogPath();
+  absl::StatusOr<std::string> GetTraceLogPath();
 
   // Helper method to get the clock time in microsecond.
   int64 TimeNowUsec() { return ToUnixMicros(clock_->TimeNow()); }
 
+ private:
   // The settings for this tracer.
   ProfilerConfig profiler_config_;
 
@@ -340,6 +337,10 @@ class GraphProfiler : public std::enable_shared_from_this<ProfilingContext> {
 
   // The configuration for the graph being profiled.
   const ValidatedGraphConfig* validated_graph_;
+
+  // A private resource for creating GraphProfiles.
+  class GraphProfileBuilder;
+  std::unique_ptr<GraphProfileBuilder> profile_builder_;
 
   // For testing.
   friend GraphProfilerTestPeer;

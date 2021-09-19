@@ -29,29 +29,30 @@ namespace mediapipe {
 // received.
 //
 // This Calculator can be used with an ImmediateInputStreamHandler or with the
-// default ISH. Note that currently ImmediateInputStreamHandler seems to
-// interfere with timestamp bound propagation, so it is better to use the
-// default unless the immediate one is needed. (b/118387598)
+// default ISH.
 //
 // This Calculator is designed to work with a Demux calculator such as
 // the RoundRobinDemuxCalculator.  Therefore, packets from different
 // input streams are normally not expected to have the same timestamp.
 //
+// NOTE: this calculator can drop packets non-deterministically, depending on
+// how fast the input streams are fed. In most cases, MuxCalculator should be
+// preferred. In particular, dropping packets can interfere with rate limiting
+// mechanisms.
 class ImmediateMuxCalculator : public CalculatorBase {
  public:
   // This calculator combines any set of input streams into a single
   // output stream.  All input stream types must match the output stream type.
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
   // Passes any input packet to the output stream immediately, unless the
   // packet timestamp is lower than a previously passed packet.
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
 };
 REGISTER_CALCULATOR(ImmediateMuxCalculator);
 
-::mediapipe::Status ImmediateMuxCalculator::GetContract(
-    CalculatorContract* cc) {
+absl::Status ImmediateMuxCalculator::GetContract(CalculatorContract* cc) {
   RET_CHECK(cc->Outputs().NumEntries() >= 1 && cc->Outputs().NumEntries() <= 2)
       << "This calculator produces only one or two output streams.";
   cc->Outputs().Index(0).SetAny();
@@ -61,21 +62,24 @@ REGISTER_CALCULATOR(ImmediateMuxCalculator);
   for (int i = 0; i < cc->Inputs().NumEntries(); ++i) {
     cc->Inputs().Index(i).SetSameAs(&cc->Outputs().Index(0));
   }
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status ImmediateMuxCalculator::Open(CalculatorContext* cc) {
+absl::Status ImmediateMuxCalculator::Open(CalculatorContext* cc) {
   cc->SetOffset(TimestampDiff(0));
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status ImmediateMuxCalculator::Process(CalculatorContext* cc) {
+absl::Status ImmediateMuxCalculator::Process(CalculatorContext* cc) {
   // Pass along the first packet, unless it has been superseded.
   for (int i = 0; i < cc->Inputs().NumEntries(); ++i) {
     const Packet& packet = cc->Inputs().Index(i).Value();
     if (!packet.IsEmpty()) {
       if (packet.Timestamp() >= cc->Outputs().Index(0).NextTimestampBound()) {
         cc->Outputs().Index(0).AddPacket(packet);
+      } else {
+        LOG_FIRST_N(WARNING, 5)
+            << "Dropping a packet with timestamp " << packet.Timestamp();
       }
       if (cc->Outputs().NumEntries() >= 2) {
         Timestamp output_timestamp = std::max(
@@ -84,7 +88,7 @@ REGISTER_CALCULATOR(ImmediateMuxCalculator);
       }
     }
   }
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace mediapipe

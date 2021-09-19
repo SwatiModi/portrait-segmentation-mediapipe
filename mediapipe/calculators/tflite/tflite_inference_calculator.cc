@@ -19,7 +19,6 @@
 
 #include "absl/memory/memory.h"
 #include "mediapipe/calculators/tflite/tflite_inference_calculator.pb.h"
-#include "mediapipe/calculators/tflite/util.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/util/tflite/config.h"
@@ -28,11 +27,17 @@
 #include "mediapipe/util/cpu_util.h"
 #endif  // !__EMSCRIPTEN__ || __EMSCRIPTEN_PTHREADS__
 
-#include "mediapipe/util/resource_util.h"
+#include "mediapipe/util/tflite/tflite_model_loader.h"
 #include "tensorflow/lite/error_reporter.h"
 #include "tensorflow/lite/interpreter.h"
 #include "tensorflow/lite/kernels/register.h"
 #include "tensorflow/lite/model.h"
+
+#if defined(MEDIAPIPE_ANDROID)
+#include "mediapipe/util/android/file/base/file.h"
+#include "mediapipe/util/android/file/base/filesystem.h"
+#include "mediapipe/util/android/file/base/helpers.h"
+#endif  // ANDROID
 
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
 #include "mediapipe/gpu/gl_calculator_helper.h"
@@ -80,7 +85,22 @@ constexpr char kTensorsGpuTag[] = "TENSORS_GPU";
 }  // namespace
 
 #if defined(MEDIAPIPE_EDGE_TPU)
-#include "edgetpu.h"
+#include "tflite/public/edgetpu.h"
+
+// Checkes whether model contains Edge TPU custom op or not.
+bool ContainsEdgeTpuCustomOp(const tflite::FlatBufferModel& model) {
+  const auto* opcodes = model.GetModel()->operator_codes();
+  for (const auto* subgraph : *model.GetModel()->subgraphs()) {
+    for (const auto* op : *subgraph->operators()) {
+      const auto* opcode = opcodes->Get(op->opcode_index());
+      if (opcode->custom_code() &&
+          opcode->custom_code()->str() == edgetpu::kCustomOp) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // Creates and returns an Edge TPU interpreter to run the given edgetpu model.
 std::unique_ptr<tflite::Interpreter> BuildEdgeTpuInterpreter(
@@ -89,14 +109,9 @@ std::unique_ptr<tflite::Interpreter> BuildEdgeTpuInterpreter(
     edgetpu::EdgeTpuContext* edgetpu_context) {
   resolver->AddCustom(edgetpu::kCustomOp, edgetpu::RegisterCustomOp());
   std::unique_ptr<tflite::Interpreter> interpreter;
-  if (tflite::InterpreterBuilder(model, *resolver)(&interpreter) != kTfLiteOk) {
-    std::cerr << "Failed to build edge TPU interpreter." << std::endl;
-  }
+  CHECK_EQ(tflite::InterpreterBuilder(model, *resolver)(&interpreter),
+           kTfLiteOk);
   interpreter->SetExternalContext(kTfLiteEdgeTpuContext, edgetpu_context);
-  interpreter->SetNumThreads(1);
-  if (interpreter->AllocateTensors() != kTfLiteOk) {
-    std::cerr << "Failed to allocate edge TPU tensors." << std::endl;
-  }
   return interpreter;
 }
 #endif  // MEDIAPIPE_EDGE_TPU
@@ -123,9 +138,23 @@ struct GPUData {
 }  // namespace
 #endif  // MEDIAPIPE_TFLITE_GPU_SUPPORTED
 
+namespace {
+
+int GetXnnpackDefaultNumThreads() {
+#if defined(MEDIAPIPE_ANDROID) || defined(MEDIAPIPE_IOS) || \
+    defined(__EMSCRIPTEN_PTHREADS__)
+  constexpr int kMinNumThreadsByDefault = 1;
+  constexpr int kMaxNumThreadsByDefault = 4;
+  return std::clamp(NumCPUCores() / 2, kMinNumThreadsByDefault,
+                    kMaxNumThreadsByDefault);
+#else
+  return 1;
+#endif  // MEDIAPIPE_ANDROID || MEDIAPIPE_IOS || __EMSCRIPTEN_PTHREADS__
+}
+
 // Returns number of threads to configure XNNPACK delegate with.
-// (Equal to user provided value if specified.  Otherwise, it returns number of
-// high cores (hard-coded to 1 for Emscripten without Threads extension))
+// Returns user provided value if specified. Otherwise, tries to choose optimal
+// number of threads depending on the device.
 int GetXnnpackNumThreads(
     const mediapipe::TfLiteInferenceCalculatorOptions& opts) {
   static constexpr int kDefaultNumThreads = -1;
@@ -133,12 +162,10 @@ int GetXnnpackNumThreads(
       opts.delegate().xnnpack().num_threads() != kDefaultNumThreads) {
     return opts.delegate().xnnpack().num_threads();
   }
-#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
-  return InferHigherCoreIds().size();
-#else
-  return 1;
-#endif  // !__EMSCRIPTEN__ || __EMSCRIPTEN_PTHREADS__
+  return GetXnnpackDefaultNumThreads();
 }
+
+}  // namespace
 
 // Calculator Header Section
 
@@ -202,42 +229,40 @@ int GetXnnpackNumThreads(
 //  Input tensors are assumed to be of the correct size and already normalized.
 //  All output TfLiteTensors will be destroyed when the graph closes,
 //  (i.e. after calling graph.WaitUntilDone()).
-//  GPU tensors are currently only supported on Android and iOS.
+//  GPU tensor support rquires OpenGL ES 3.1+.
 //  This calculator uses FixedSizeInputStreamHandler by default.
 //
 class TfLiteInferenceCalculator : public CalculatorBase {
  public:
   using TfLiteDelegatePtr =
       std::unique_ptr<TfLiteDelegate, std::function<void(TfLiteDelegate*)>>;
-  using TfLiteModelPtr =
-      std::unique_ptr<tflite::FlatBufferModel,
-                      std::function<void(tflite::FlatBufferModel*)>>;
 
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
-  ::mediapipe::Status Close(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
+  absl::Status Close(CalculatorContext* cc) override;
 
  private:
-  ::mediapipe::Status LoadModel(CalculatorContext* cc);
-  ::mediapipe::StatusOr<Packet> GetModelAsPacket(const CalculatorContext& cc);
-  ::mediapipe::Status LoadDelegate(CalculatorContext* cc);
-  ::mediapipe::Status InitTFLiteGPURunner(CalculatorContext* cc);
-  ::mediapipe::Status ProcessInputsCpu(
-      CalculatorContext* cc, std::vector<TfLiteTensor>* output_tensors_cpu);
-  ::mediapipe::Status ProcessOutputsCpu(
+  absl::Status ReadKernelsFromFile();
+  absl::Status WriteKernelsToFile();
+  absl::Status LoadModel(CalculatorContext* cc);
+  absl::StatusOr<Packet> GetModelAsPacket(const CalculatorContext& cc);
+  absl::Status LoadDelegate(CalculatorContext* cc);
+  absl::Status InitTFLiteGPURunner(CalculatorContext* cc);
+  absl::Status ProcessInputsCpu(CalculatorContext* cc,
+                                std::vector<TfLiteTensor>* output_tensors_cpu);
+  absl::Status ProcessOutputsCpu(
       CalculatorContext* cc,
       std::unique_ptr<std::vector<TfLiteTensor>> output_tensors_cpu);
-  ::mediapipe::Status ProcessInputsGpu(
-      CalculatorContext* cc, std::vector<GpuTensor>* output_tensors_gpu);
-  ::mediapipe::Status ProcessOutputsGpu(
+  absl::Status ProcessInputsGpu(CalculatorContext* cc,
+                                std::vector<GpuTensor>* output_tensors_gpu);
+  absl::Status ProcessOutputsGpu(
       CalculatorContext* cc,
       std::unique_ptr<std::vector<TfLiteTensor>> output_tensors_cpu,
       std::unique_ptr<std::vector<GpuTensor>> output_tensors_gpu);
 
-  ::mediapipe::Status RunInContextIfNeeded(
-      std::function<::mediapipe::Status(void)> f) {
+  absl::Status RunInContextIfNeeded(std::function<absl::Status(void)> f) {
     if (gpu_inference_) {
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
       return gpu_helper_.RunInGlContext(std::move(f));
@@ -264,8 +289,7 @@ class TfLiteInferenceCalculator : public CalculatorBase {
 #endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
 
 #if defined(MEDIAPIPE_EDGE_TPU)
-  std::shared_ptr<edgetpu::EdgeTpuContext> edgetpu_context_ =
-      edgetpu::EdgeTpuManager::GetSingleton()->OpenDevice();
+  std::shared_ptr<edgetpu::EdgeTpuContext> edgetpu_context_;
 #endif
 
   bool gpu_inference_ = false;
@@ -274,12 +298,24 @@ class TfLiteInferenceCalculator : public CalculatorBase {
   bool use_quantized_tensors_ = false;
 
   bool use_advanced_gpu_api_ = false;
+  bool allow_precision_loss_ = false;
+  mediapipe::TfLiteInferenceCalculatorOptions::Delegate::Gpu::Api
+      tflite_gpu_runner_api_;
+  mediapipe::TfLiteInferenceCalculatorOptions::Delegate::Gpu::InferenceUsage
+      tflite_gpu_runner_usage_;
+
+  bool use_kernel_caching_ = false;
+  std::string cached_kernel_filename_;
 };
 REGISTER_CALCULATOR(TfLiteInferenceCalculator);
 
 // Calculator Core Section
 
 namespace {
+
+constexpr char kCustomOpResolverTag[] = "CUSTOM_OP_RESOLVER";
+constexpr char kModelTag[] = "MODEL";
+
 template <class CC>
 bool ShouldUseGpu(CC* cc) {
 #if MEDIAPIPE_TFLITE_GPU_SUPPORTED
@@ -295,8 +331,7 @@ bool ShouldUseGpu(CC* cc) {
 }
 }  // namespace
 
-::mediapipe::Status TfLiteInferenceCalculator::GetContract(
-    CalculatorContract* cc) {
+absl::Status TfLiteInferenceCalculator::GetContract(CalculatorContract* cc) {
   RET_CHECK(cc->Inputs().HasTag(kTensorsTag) ^
             cc->Inputs().HasTag(kTensorsGpuTag));
   RET_CHECK(cc->Outputs().HasTag(kTensorsTag) ^
@@ -305,7 +340,7 @@ bool ShouldUseGpu(CC* cc) {
   const auto& options =
       cc->Options<::mediapipe::TfLiteInferenceCalculatorOptions>();
   RET_CHECK(!options.model_path().empty() ^
-            cc->InputSidePackets().HasTag("MODEL"))
+            cc->InputSidePackets().HasTag(kModelTag))
       << "Either model as side packet or model path in options is required.";
 
   if (cc->Inputs().HasTag(kTensorsTag))
@@ -318,13 +353,13 @@ bool ShouldUseGpu(CC* cc) {
   if (cc->Outputs().HasTag(kTensorsGpuTag))
     cc->Outputs().Tag(kTensorsGpuTag).Set<std::vector<GpuTensor>>();
 
-  if (cc->InputSidePackets().HasTag("CUSTOM_OP_RESOLVER")) {
+  if (cc->InputSidePackets().HasTag(kCustomOpResolverTag)) {
     cc->InputSidePackets()
-        .Tag("CUSTOM_OP_RESOLVER")
+        .Tag(kCustomOpResolverTag)
         .Set<tflite::ops::builtin::BuiltinOpResolver>();
   }
-  if (cc->InputSidePackets().HasTag("MODEL")) {
-    cc->InputSidePackets().Tag("MODEL").Set<TfLiteModelPtr>();
+  if (cc->InputSidePackets().HasTag(kModelTag)) {
+    cc->InputSidePackets().Tag(kModelTag).Set<TfLiteModelPtr>();
   }
 
   if (ShouldUseGpu(cc)) {
@@ -338,10 +373,10 @@ bool ShouldUseGpu(CC* cc) {
   // Assign this calculator's default InputStreamHandler.
   cc->SetInputStreamHandler("FixedSizeInputStreamHandler");
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TfLiteInferenceCalculator::Open(CalculatorContext* cc) {
+absl::Status TfLiteInferenceCalculator::Open(CalculatorContext* cc) {
   cc->SetOffset(TimestampDiff(0));
 
   const auto& options =
@@ -355,6 +390,21 @@ bool ShouldUseGpu(CC* cc) {
                           options.has_delegate() &&
                           options.delegate().has_gpu() &&
                           options.delegate().gpu().use_advanced_gpu_api();
+  allow_precision_loss_ = options.delegate().gpu().allow_precision_loss();
+  tflite_gpu_runner_api_ = options.delegate().gpu().api();
+  tflite_gpu_runner_usage_ = options.delegate().gpu().usage();
+
+  use_kernel_caching_ = use_advanced_gpu_api_ &&
+                        options.delegate().gpu().has_cached_kernel_path();
+
+  if (use_kernel_caching_) {
+#if MEDIAPIPE_TFLITE_GL_INFERENCE && defined(MEDIAPIPE_ANDROID)
+    cached_kernel_filename_ = options.delegate().gpu().cached_kernel_path() +
+                              mediapipe::File::Basename(options.model_path()) +
+                              ".ker";
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE && MEDIAPIPE_ANDROID
+  }
+
   if (use_advanced_gpu_api_ && !gpu_input_) {
     LOG(WARNING) << "Cannot use advanced GPU APIs, input must be GPU buffers."
                     "Falling back to the default TFLite API.";
@@ -367,29 +417,23 @@ bool ShouldUseGpu(CC* cc) {
   if (gpu_inference_) {
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
     MP_RETURN_IF_ERROR(gpu_helper_.Open(cc));
-    MP_RETURN_IF_ERROR(
-        gpu_helper_.RunInGlContext([this, &cc]() -> ::mediapipe::Status {
-          return use_advanced_gpu_api_ ? InitTFLiteGPURunner(cc)
-                                       : LoadDelegate(cc);
-        }));
+    MP_RETURN_IF_ERROR(gpu_helper_.RunInGlContext([this,
+                                                   &cc]() -> absl::Status {
+      return use_advanced_gpu_api_ ? InitTFLiteGPURunner(cc) : LoadDelegate(cc);
+    }));
 #elif MEDIAPIPE_TFLITE_METAL_INFERENCE
     gpu_helper_ = [[MPPMetalHelper alloc] initWithCalculatorContext:cc];
     RET_CHECK(gpu_helper_);
     MP_RETURN_IF_ERROR(LoadDelegate(cc));
 #endif
   } else {
-    // TODO: why only on these platforms?
-    // It seems that the XNNPACK delegate fails to load on Linux.
-#if defined(__EMSCRIPTEN__) || defined(MEDIAPIPE_ANDROID) || \
-    defined(MEDIAPIPE_IOS)
     MP_RETURN_IF_ERROR(LoadDelegate(cc));
-#endif  // __EMSCRIPTEN__ || MEDIAPIPE_ANDROID || MEDIAPIPE_IOS
   }
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TfLiteInferenceCalculator::Process(CalculatorContext* cc) {
-  return RunInContextIfNeeded([this, cc]() -> ::mediapipe::Status {
+absl::Status TfLiteInferenceCalculator::Process(CalculatorContext* cc) {
+  return RunInContextIfNeeded([this, cc]() -> absl::Status {
     // 0. Declare outputs
     auto output_tensors_gpu = absl::make_unique<std::vector<GpuTensor>>();
     auto output_tensors_cpu = absl::make_unique<std::vector<TfLiteTensor>>();
@@ -408,7 +452,20 @@ bool ShouldUseGpu(CC* cc) {
     } else {
       RET_CHECK_EQ(interpreter_->Invoke(), kTfLiteOk);
     }
-#else
+#elif MEDIAPIPE_TFLITE_METAL_INFERENCE
+    // Metal delegate supports external command buffer only if all input and
+    // output buffers are on GPU.
+    if (gpu_inference_ && gpu_input_ && gpu_output_) {
+      id<MTLCommandBuffer> command_buffer = [gpu_helper_ commandBuffer];
+      command_buffer.label = @"TfLiteInferenceCalculator";
+      RET_CHECK(
+          TFLGpuDelegateSetCommandBuffer(delegate_.get(), command_buffer));
+      RET_CHECK_EQ(interpreter_->Invoke(), kTfLiteOk);
+      [command_buffer commit];
+    } else {
+      RET_CHECK_EQ(interpreter_->Invoke(), kTfLiteOk);
+    }
+#else   // MEDIAPIPE_TFLITE_GL_INFERENCE
     RET_CHECK_EQ(interpreter_->Invoke(), kTfLiteOk);
 #endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
 
@@ -420,14 +477,30 @@ bool ShouldUseGpu(CC* cc) {
       MP_RETURN_IF_ERROR(ProcessOutputsCpu(cc, std::move(output_tensors_cpu)));
     }
 
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   });
 }
 
-::mediapipe::Status TfLiteInferenceCalculator::Close(CalculatorContext* cc) {
-  return RunInContextIfNeeded([this]() -> ::mediapipe::Status {
+absl::Status TfLiteInferenceCalculator::WriteKernelsToFile() {
+#if MEDIAPIPE_TFLITE_GL_INFERENCE && defined(MEDIAPIPE_ANDROID)
+  if (use_kernel_caching_) {
+    // Save kernel file.
+    auto kernel_cache = absl::make_unique<std::vector<uint8_t>>(
+        tflite_gpu_runner_->GetSerializedBinaryCache());
+    std::string cache_str(kernel_cache->begin(), kernel_cache->end());
+    MP_RETURN_IF_ERROR(
+        mediapipe::file::SetContents(cached_kernel_filename_, cache_str));
+  }
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE && MEDIAPIPE_ANDROID
+  return absl::OkStatus();
+}
+
+absl::Status TfLiteInferenceCalculator::Close(CalculatorContext* cc) {
+  MP_RETURN_IF_ERROR(WriteKernelsToFile());
+
+  return RunInContextIfNeeded([this]() -> absl::Status {
+    interpreter_ = nullptr;
     if (delegate_) {
-      interpreter_ = nullptr;
       delegate_ = nullptr;
 #if MEDIAPIPE_TFLITE_GPU_SUPPORTED
       if (gpu_inference_) {
@@ -441,18 +514,18 @@ bool ShouldUseGpu(CC* cc) {
 #endif  // MEDIAPIPE_TFLITE_GPU_SUPPORTED
     }
 #if defined(MEDIAPIPE_EDGE_TPU)
-    edgetpu_context_.reset();
+    edgetpu_context_ = nullptr;
 #endif
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   });
 }
 
 // Calculator Auxiliary Section
 
-::mediapipe::Status TfLiteInferenceCalculator::ProcessInputsCpu(
+absl::Status TfLiteInferenceCalculator::ProcessInputsCpu(
     CalculatorContext* cc, std::vector<TfLiteTensor>* output_tensors_cpu) {
   if (cc->Inputs().Tag(kTensorsTag).IsEmpty()) {
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
   // Read CPU input into tensors.
   const auto& input_tensors =
@@ -474,13 +547,13 @@ bool ShouldUseGpu(CC* cc) {
     }
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TfLiteInferenceCalculator::ProcessInputsGpu(
+absl::Status TfLiteInferenceCalculator::ProcessInputsGpu(
     CalculatorContext* cc, std::vector<GpuTensor>* output_tensors_gpu) {
   if (cc->Inputs().Tag(kTensorsGpuTag).IsEmpty()) {
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
   if (use_advanced_gpu_api_) {
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
@@ -496,7 +569,7 @@ bool ShouldUseGpu(CC* cc) {
       output_tensors_gpu->resize(gpu_data_out_.size());
       for (int i = 0; i < gpu_data_out_.size(); ++i) {
         GpuTensor& tensor = output_tensors_gpu->at(i);
-        RET_CHECK_CALL(CreateReadWriteShaderStorageBuffer<float>(
+        MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
             gpu_data_out_[i]->elements, &tensor));
         MP_RETURN_IF_ERROR(
             tflite_gpu_runner_->BindSSBOToOutputTensor(tensor.id(), i));
@@ -518,7 +591,7 @@ bool ShouldUseGpu(CC* cc) {
     // Explicit copy input.
     gpu_data_in_.resize(input_tensors.size());
     for (int i = 0; i < input_tensors.size(); ++i) {
-      RET_CHECK_CALL(CopyBuffer(input_tensors[i], gpu_data_in_[i]->buffer));
+      MP_RETURN_IF_ERROR(CopyBuffer(input_tensors[i], gpu_data_in_[i]->buffer));
     }
 #elif MEDIAPIPE_TFLITE_METAL_INFERENCE
     const auto& input_tensors =
@@ -546,10 +619,10 @@ bool ShouldUseGpu(CC* cc) {
 #endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TfLiteInferenceCalculator::ProcessOutputsCpu(
+absl::Status TfLiteInferenceCalculator::ProcessOutputsCpu(
     CalculatorContext* cc,
     std::unique_ptr<std::vector<TfLiteTensor>> output_tensors_cpu) {
   // Output result tensors (CPU).
@@ -562,10 +635,10 @@ bool ShouldUseGpu(CC* cc) {
       .Tag(kTensorsTag)
       .Add(output_tensors_cpu.release(), cc->InputTimestamp());
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TfLiteInferenceCalculator::ProcessOutputsGpu(
+absl::Status TfLiteInferenceCalculator::ProcessOutputsGpu(
     CalculatorContext* cc,
     std::unique_ptr<std::vector<TfLiteTensor>> output_tensors_cpu,
     std::unique_ptr<std::vector<GpuTensor>> output_tensors_gpu) {
@@ -582,7 +655,7 @@ bool ShouldUseGpu(CC* cc) {
       for (int i = 0; i < tensor_indexes.size(); ++i) {
         TfLiteTensor* tensor = interpreter_->tensor(tensor_indexes[i]);
         std::vector<float> gpu_data(tensor->bytes / sizeof(float));
-        RET_CHECK_CALL(gpu_data_out_[i]->buffer.Read(
+        MP_RETURN_IF_ERROR(gpu_data_out_[i]->buffer.Read(
             absl::MakeSpan(tensor->data.f, tensor->bytes)));
         output_tensors_cpu->emplace_back(*tensor);
       }
@@ -599,9 +672,9 @@ bool ShouldUseGpu(CC* cc) {
     for (int i = 0; i < gpu_data_out_.size(); ++i) {
       GpuTensor& tensor = output_tensors_gpu->at(i);
       // Allocate output tensor.
-      RET_CHECK_CALL(CreateReadWriteShaderStorageBuffer<float>(
+      MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
           gpu_data_out_[i]->elements, &tensor));
-      RET_CHECK_CALL(CopyBuffer(gpu_data_out_[i]->buffer, tensor));
+      MP_RETURN_IF_ERROR(CopyBuffer(gpu_data_out_[i]->buffer, tensor));
     }
     cc->Outputs()
         .Tag(kTensorsGpuTag)
@@ -633,29 +706,83 @@ bool ShouldUseGpu(CC* cc) {
 #endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TfLiteInferenceCalculator::InitTFLiteGPURunner(
+absl::Status TfLiteInferenceCalculator::ReadKernelsFromFile() {
+#if MEDIAPIPE_TFLITE_GL_INFERENCE && defined(MEDIAPIPE_ANDROID)
+  if (use_kernel_caching_) {
+    // Load pre-compiled kernel file.
+    if (mediapipe::File::Exists(cached_kernel_filename_)) {
+      std::string cache_str;
+      MP_RETURN_IF_ERROR(
+          mediapipe::file::GetContents(cached_kernel_filename_, &cache_str));
+      std::vector<uint8_t> cache_vec(cache_str.begin(), cache_str.end());
+      tflite_gpu_runner_->SetSerializedBinaryCache(std::move(cache_vec));
+    }
+  }
+#endif  // MEDIAPIPE_TFLITE_GL_INFERENCE && MEDIAPIPE_ANDROID
+  return absl::OkStatus();
+}
+
+absl::Status TfLiteInferenceCalculator::InitTFLiteGPURunner(
     CalculatorContext* cc) {
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
   ASSIGN_OR_RETURN(model_packet_, GetModelAsPacket(*cc));
   const auto& model = *model_packet_.Get<TfLiteModelPtr>();
-  tflite::ops::builtin::BuiltinOpResolver op_resolver;
-  if (cc->InputSidePackets().HasTag("CUSTOM_OP_RESOLVER")) {
-    op_resolver = cc->InputSidePackets()
-                      .Tag("CUSTOM_OP_RESOLVER")
-                      .Get<tflite::ops::builtin::BuiltinOpResolver>();
+
+  tflite::ops::builtin::BuiltinOpResolverWithoutDefaultDelegates
+      default_op_resolver;
+  auto op_resolver_ptr =
+      static_cast<const tflite::ops::builtin::BuiltinOpResolver*>(
+          &default_op_resolver);
+  if (cc->InputSidePackets().HasTag(kCustomOpResolverTag)) {
+    op_resolver_ptr = &(cc->InputSidePackets()
+                            .Tag(kCustomOpResolverTag)
+                            .Get<tflite::ops::builtin::BuiltinOpResolver>());
   }
 
   // Create runner
   tflite::gpu::InferenceOptions options;
-  options.priority1 = tflite::gpu::InferencePriority::MIN_LATENCY;
+  options.priority1 = allow_precision_loss_
+                          ? tflite::gpu::InferencePriority::MIN_LATENCY
+                          : tflite::gpu::InferencePriority::MAX_PRECISION;
   options.priority2 = tflite::gpu::InferencePriority::AUTO;
   options.priority3 = tflite::gpu::InferencePriority::AUTO;
-  options.usage = tflite::gpu::InferenceUsage::SUSTAINED_SPEED;
+  switch (tflite_gpu_runner_usage_) {
+    case mediapipe::TfLiteInferenceCalculatorOptions::Delegate::Gpu::
+        FAST_SINGLE_ANSWER: {
+      options.usage = tflite::gpu::InferenceUsage::FAST_SINGLE_ANSWER;
+      break;
+    }
+    case mediapipe::TfLiteInferenceCalculatorOptions::Delegate::Gpu::
+        SUSTAINED_SPEED: {
+      options.usage = tflite::gpu::InferenceUsage::SUSTAINED_SPEED;
+      break;
+    }
+    case mediapipe::TfLiteInferenceCalculatorOptions::Delegate::Gpu::
+        UNSPECIFIED: {
+      return absl::InternalError("inference usage need to be specified.");
+    }
+  }
+
   tflite_gpu_runner_ = std::make_unique<tflite::gpu::TFLiteGPURunner>(options);
-  RET_CHECK_CALL(tflite_gpu_runner_->InitializeWithModel(model, op_resolver));
+  switch (tflite_gpu_runner_api_) {
+    case mediapipe::TfLiteInferenceCalculatorOptions::Delegate::Gpu::OPENGL: {
+      tflite_gpu_runner_->ForceOpenGL();
+      break;
+    }
+    case mediapipe::TfLiteInferenceCalculatorOptions::Delegate::Gpu::OPENCL: {
+      tflite_gpu_runner_->ForceOpenCL();
+      break;
+    }
+    case mediapipe::TfLiteInferenceCalculatorOptions::Delegate::Gpu::ANY: {
+      // Do not need to force any specific API.
+      break;
+    }
+  }
+  MP_RETURN_IF_ERROR(tflite_gpu_runner_->InitializeWithModel(
+      model, *op_resolver_ptr, /*allow_quant_ops=*/true));
 
   // Allocate interpreter memory for cpu output.
   if (!gpu_output_) {
@@ -670,12 +797,11 @@ bool ShouldUseGpu(CC* cc) {
     quant.type = kTfLiteNoQuantization;
     quant.params = nullptr;
     for (int i = 0; i < num_outputs; ++i) {
-      auto shape = tflite_gpu_runner_->GetOutputShapes()[i];
+      auto shape = tflite_gpu_runner_->GetTFLiteOutputShapes()[i];
       const int tensor_idx = interpreter_->inputs()[i];
       interpreter_->SetTensorParametersReadWrite(tensor_idx, kTfLiteFloat32, "",
-                                                 {shape.c}, quant);
-      CHECK(interpreter_->ResizeInputTensor(
-                tensor_idx, {shape.h, shape.w, shape.c}) == kTfLiteOk);
+                                                 shape, quant);
+      CHECK(interpreter_->ResizeInputTensor(tensor_idx, shape) == kTfLiteOk);
     }
     CHECK(interpreter_->AllocateTensors() == kTfLiteOk);
   }
@@ -688,36 +814,50 @@ bool ShouldUseGpu(CC* cc) {
     ASSIGN_OR_RETURN(gpu_data_out_[i]->elements,
                      tflite_gpu_runner_->GetOutputElements(i));
     // Create and bind input buffer.
-    RET_CHECK_CALL(::tflite::gpu::gl::CreateReadWriteShaderStorageBuffer<float>(
-        gpu_data_out_[i]->elements, &gpu_data_out_[i]->buffer));
+    MP_RETURN_IF_ERROR(
+        ::tflite::gpu::gl::CreateReadWriteShaderStorageBuffer<float>(
+            gpu_data_out_[i]->elements, &gpu_data_out_[i]->buffer));
   }
-  RET_CHECK_CALL(tflite_gpu_runner_->Build());
+
+  MP_RETURN_IF_ERROR(ReadKernelsFromFile());
+
+  MP_RETURN_IF_ERROR(tflite_gpu_runner_->Build());
 #endif  // MEDIAPIPE_TFLITE_GL_INFERENCE
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TfLiteInferenceCalculator::LoadModel(
-    CalculatorContext* cc) {
+absl::Status TfLiteInferenceCalculator::LoadModel(CalculatorContext* cc) {
   if (use_advanced_gpu_api_) {
     // Use InitTFLiteGPURunner for everything.
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
   ASSIGN_OR_RETURN(model_packet_, GetModelAsPacket(*cc));
   const auto& model = *model_packet_.Get<TfLiteModelPtr>();
-  tflite::ops::builtin::BuiltinOpResolver op_resolver;
-  if (cc->InputSidePackets().HasTag("CUSTOM_OP_RESOLVER")) {
-    op_resolver = cc->InputSidePackets()
-                      .Tag("CUSTOM_OP_RESOLVER")
-                      .Get<tflite::ops::builtin::BuiltinOpResolver>();
-  }
 
+  tflite::ops::builtin::BuiltinOpResolverWithoutDefaultDelegates
+      default_op_resolver;
 #if defined(MEDIAPIPE_EDGE_TPU)
-  interpreter_ =
-      BuildEdgeTpuInterpreter(model, &op_resolver, edgetpu_context_.get());
-#else
-  tflite::InterpreterBuilder(model, op_resolver)(&interpreter_);
+  if (ContainsEdgeTpuCustomOp(model)) {
+    edgetpu_context_ = edgetpu::EdgeTpuManager::GetSingleton()->OpenDevice();
+    interpreter_ = BuildEdgeTpuInterpreter(model, &default_op_resolver,
+                                           edgetpu_context_.get());
+  } else {
+#endif  // MEDIAPIPE_EDGE_TPU
+    auto op_resolver_ptr =
+        static_cast<const tflite::ops::builtin::BuiltinOpResolver*>(
+            &default_op_resolver);
+
+    if (cc->InputSidePackets().HasTag(kCustomOpResolverTag)) {
+      op_resolver_ptr = &(cc->InputSidePackets()
+                              .Tag(kCustomOpResolverTag)
+                              .Get<tflite::ops::builtin::BuiltinOpResolver>());
+    }
+
+    tflite::InterpreterBuilder(model, *op_resolver_ptr)(&interpreter_);
+#if defined(MEDIAPIPE_EDGE_TPU)
+  }
 #endif  // MEDIAPIPE_EDGE_TPU
 
   RET_CHECK(interpreter_);
@@ -740,39 +880,30 @@ bool ShouldUseGpu(CC* cc) {
     if (use_quantized_tensors_) gpu_inference_ = false;
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::StatusOr<Packet> TfLiteInferenceCalculator::GetModelAsPacket(
+absl::StatusOr<Packet> TfLiteInferenceCalculator::GetModelAsPacket(
     const CalculatorContext& cc) {
   const auto& options =
       cc.Options<mediapipe::TfLiteInferenceCalculatorOptions>();
   if (!options.model_path().empty()) {
-    std::string model_path = options.model_path();
-
-    ASSIGN_OR_RETURN(model_path, mediapipe::PathToResourceAsFile(model_path));
-
-    auto model = tflite::FlatBufferModel::BuildFromFile(model_path.c_str());
-    RET_CHECK(model) << "Failed to load model from path.";
-    return MakePacket<TfLiteModelPtr>(TfLiteModelPtr(
-        model.release(), [](tflite::FlatBufferModel* model) { delete model; }));
+    return TfLiteModelLoader::LoadFromPath(options.model_path());
   }
-  if (cc.InputSidePackets().HasTag("MODEL")) {
-    return cc.InputSidePackets().Tag("MODEL");
+  if (cc.InputSidePackets().HasTag(kModelTag)) {
+    return cc.InputSidePackets().Tag(kModelTag);
   }
-  return ::mediapipe::Status(
-      ::mediapipe::StatusCode::kNotFound,
-      "Must specify TFLite model as path or loaded model.");
+  return absl::Status(absl::StatusCode::kNotFound,
+                      "Must specify TFLite model as path or loaded model.");
 }
 
-::mediapipe::Status TfLiteInferenceCalculator::LoadDelegate(
-    CalculatorContext* cc) {
+absl::Status TfLiteInferenceCalculator::LoadDelegate(CalculatorContext* cc) {
   const auto& calculator_opts =
       cc->Options<mediapipe::TfLiteInferenceCalculatorOptions>();
   if (calculator_opts.has_delegate() &&
       calculator_opts.delegate().has_tflite()) {
     // Default tflite inference requeqsted - no need to modify graph.
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
   if (!gpu_inference_) {
@@ -784,43 +915,52 @@ bool ShouldUseGpu(CC* cc) {
       // Attempt to use NNAPI.
       // If not supported, the default CPU delegate will be created and used.
       interpreter_->SetAllowFp16PrecisionForFp32(1);
-      delegate_ =
-          TfLiteDelegatePtr(tflite::NnApiDelegate(), [](TfLiteDelegate*) {
-            // No need to free according to tflite::NnApiDelegate()
-            // documentation.
-          });
+      tflite::StatefulNnApiDelegate::Options options;
+      const auto& nnapi = calculator_opts.delegate().nnapi();
+      // Set up cache_dir and model_token for NNAPI compilation cache.
+      if (nnapi.has_cache_dir() && nnapi.has_model_token()) {
+        options.cache_dir = nnapi.cache_dir().c_str();
+        options.model_token = nnapi.model_token().c_str();
+      }
+      delegate_ = TfLiteDelegatePtr(new tflite::StatefulNnApiDelegate(options),
+                                    [](TfLiteDelegate*) {});
       RET_CHECK_EQ(interpreter_->ModifyGraphWithDelegate(delegate_.get()),
                    kTfLiteOk);
-      return ::mediapipe::OkStatus();
+      return absl::OkStatus();
     }
 #endif  // MEDIAPIPE_ANDROID
 
 #if defined(__EMSCRIPTEN__)
-    const bool xnnpack_requested = true;
+    const bool use_xnnpack = true;
 #else
-    const bool xnnpack_requested = calculator_opts.has_delegate() &&
-                                   calculator_opts.delegate().has_xnnpack();
-#endif  // __EMSCRIPTEN__
+    const bool use_xnnpack = calculator_opts.has_delegate() &&
+                             calculator_opts.delegate().has_xnnpack();
+#endif  // defined(__EMSCRIPTEN__)
 
 #if !defined(MEDIAPIPE_EDGE_TPU)
-    if (xnnpack_requested) {
+    if (use_xnnpack) {
       TfLiteXNNPackDelegateOptions xnnpack_opts{};
       xnnpack_opts.num_threads = GetXnnpackNumThreads(calculator_opts);
       delegate_ = TfLiteDelegatePtr(TfLiteXNNPackDelegateCreate(&xnnpack_opts),
                                     &TfLiteXNNPackDelegateDelete);
       RET_CHECK_EQ(interpreter_->ModifyGraphWithDelegate(delegate_.get()),
                    kTfLiteOk);
+      return absl::OkStatus();
     }
+#else
+    (void)use_xnnpack;
 #endif  // !EDGETPU
 
-    // Return, no need for GPU delegate below.
-    return ::mediapipe::OkStatus();
+    // Return and use default tflite infernece (on CPU). No need for GPU
+    // delegate below.
+    return absl::OkStatus();
   }
 
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
   // Configure and create the delegate.
   TfLiteGpuDelegateOptions options = TfLiteGpuDelegateOptionsDefault();
-  options.compile_options.precision_loss_allowed = 1;
+  options.compile_options.precision_loss_allowed =
+      allow_precision_loss_ ? 1 : 0;
   options.compile_options.preferred_gl_object_type =
       TFLITE_GL_OBJECT_TYPE_FASTEST;
   options.compile_options.dynamic_batch_enabled = 0;
@@ -841,7 +981,7 @@ bool ShouldUseGpu(CC* cc) {
         gpu_data_in_[i]->elements *= tensor->dims->data[d];
       }
       // Create and bind input buffer.
-      RET_CHECK_CALL(
+      MP_RETURN_IF_ERROR(
           ::tflite::gpu::gl::CreateReadWriteShaderStorageBuffer<float>(
               gpu_data_in_[i]->elements, &gpu_data_in_[i]->buffer));
       RET_CHECK_EQ(TfLiteGpuDelegateBindBufferToTensor(
@@ -866,7 +1006,7 @@ bool ShouldUseGpu(CC* cc) {
     // Create and bind output buffers.
     interpreter_->SetAllowBufferHandleOutput(true);
     for (int i = 0; i < gpu_data_out_.size(); ++i) {
-      RET_CHECK_CALL(CreateReadWriteShaderStorageBuffer<float>(
+      MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
           gpu_data_out_[i]->elements, &gpu_data_out_[i]->buffer));
       RET_CHECK_EQ(TfLiteGpuDelegateBindBufferToTensor(
                        delegate_.get(), gpu_data_out_[i]->buffer.id(),
@@ -884,8 +1024,12 @@ bool ShouldUseGpu(CC* cc) {
   const int kHalfSize = 2;  // sizeof(half)
   // Configure and create the delegate.
   TFLGpuDelegateOptions options;
-  options.allow_precision_loss = true;
-  options.wait_type = TFLGpuDelegateWaitType::TFLGpuDelegateWaitTypePassive;
+  // `enable_quantization` enables the run of sparse models i.e. the models with
+  // DENSIFY op preceding DEQUINTIZE op. Both ops get removed from the execution
+  // graph after the tensor of the weights is read.
+  options.enable_quantization = true;
+  options.allow_precision_loss = allow_precision_loss_;
+  options.wait_type = TFLGpuDelegateWaitType::TFLGpuDelegateWaitTypeActive;
   if (!delegate_)
     delegate_ = TfLiteDelegatePtr(TFLGpuDelegateCreate(&options),
                                   &TFLGpuDelegateDelete);
@@ -980,7 +1124,7 @@ bool ShouldUseGpu(CC* cc) {
           gpu_data_out_[i]->shape.c = tensor->dims->data[3];
           break;
         default:
-          return mediapipe::InternalError("Unsupported tensor shape.");
+          return absl::InternalError("Unsupported tensor shape.");
       }
     }
     // Create and bind output buffers.
@@ -996,17 +1140,18 @@ bool ShouldUseGpu(CC* cc) {
     }
 
     // Create converter for GPU output.
-    converter_from_BPHWC4_ = [[TFLBufferConvert alloc] initWithDevice:device
-                                                            isFloat16:true
-                                                      convertToPBHWC4:false];
+    converter_from_BPHWC4_ =
+        [[TFLBufferConvert alloc] initWithDevice:device
+                                       isFloat16:allow_precision_loss_
+                                 convertToPBHWC4:false];
     if (converter_from_BPHWC4_ == nil) {
-      return mediapipe::InternalError(
+      return absl::InternalError(
           "Error initializating output buffer converter");
     }
   }
 #endif  // MEDIAPIPE_TFLITE_METAL_INFERENCE
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace mediapipe

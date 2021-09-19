@@ -72,6 +72,8 @@ public class FrameProcessor implements TextureFrameProcessor, AudioDataProcessor
   private int numAudioChannels = 1;
   // Sample rate of audio data sent to the MediaPipe graph.
   private double audioSampleRate;
+  // Use new Image container(true), or existing GpuBuffer(false). Configure via setUseImage(bool);
+  private boolean useImage = false;
 
   /**
    * Constructor for video input/output.
@@ -116,6 +118,15 @@ public class FrameProcessor implements TextureFrameProcessor, AudioDataProcessor
    */
   public FrameProcessor(CalculatorGraphConfig graphConfig) {
     initializeGraphAndPacketCreator(graphConfig);
+  }
+
+  /**
+   * Use Image container (if true), or existing GpuBuffer (if false, default).
+   *
+   * <p>Note: should be called before calling {@link onNewFrame(TextureFrame frame)}.
+   */
+  public void setUseImage(boolean use) {
+    useImage = use;
   }
 
   /**
@@ -233,19 +244,20 @@ public class FrameProcessor implements TextureFrameProcessor, AudioDataProcessor
    *
    * @param inputStream the graph input stream that will receive input audio samples.
    * @param outputStream the output stream from which output audio samples will be produced.
-   * @param numChannels the number of audio channels in the input audio stream.
+   * @param numInputChannels the number of audio channels in the input audio stream.
+   * @param numOutputChannels the number of audio channels in the output audio stream. If there is
+   *                          no output stream, set this to zero.
    * @param audioSampleRateInHz the sample rate for audio samples in hertz (Hz).
    */
   public void addAudioStreams(
       @Nullable String inputStream,
       @Nullable String outputStream,
-      int numChannels,
+      int numInputChannels,
+      int numOutputChannels,
       double audioSampleRateInHz) {
     audioInputStream = inputStream;
     audioOutputStream = outputStream;
-    numAudioChannels = numChannels;
-    int audioChannelMask =
-        numAudioChannels == 2 ? AudioFormat.CHANNEL_IN_STEREO : AudioFormat.CHANNEL_IN_MONO;
+    numAudioChannels = numInputChannels;
     audioSampleRate = audioSampleRateInHz;
 
     if (audioInputStream != null) {
@@ -254,11 +266,13 @@ public class FrameProcessor implements TextureFrameProcessor, AudioDataProcessor
     }
 
     if (audioOutputStream != null) {
+      int outputAudioChannelMask =
+          numOutputChannels == 2 ? AudioFormat.CHANNEL_IN_STEREO : AudioFormat.CHANNEL_IN_MONO;
       AudioFormat audioFormat =
           new AudioFormat.Builder()
               .setEncoding(AUDIO_ENCODING)
               .setSampleRate((int) audioSampleRate)
-              .setChannelMask(audioChannelMask)
+              .setChannelMask(outputAudioChannelMask)
               .build();
       mediapipeGraph.addPacketCallback(
           audioOutputStream,
@@ -384,6 +398,7 @@ public class FrameProcessor implements TextureFrameProcessor, AudioDataProcessor
    *
    * <p>Normally the graph is initialized when the first frame arrives. You can optionally call this
    * method to initialize it ahead of time.
+   *
    * @throws MediaPipeException for any error status.
    */
   public void preheat() {
@@ -429,15 +444,18 @@ public class FrameProcessor implements TextureFrameProcessor, AudioDataProcessor
         addFrameListener.onWillAddFrame(timestamp);
       }
 
-      imagePacket = packetCreator.createGpuBuffer(frame);
+      if (useImage) {
+        imagePacket = packetCreator.createImage(frame);
+      } else {
+        imagePacket = packetCreator.createGpuBuffer(frame);
+      }
       // imagePacket takes ownership of frame and will release it.
       frame = null;
 
       try {
         // addConsumablePacketToInputStream allows the graph to take exclusive ownership of the
         // packet, which may allow for more memory optimizations.
-        mediapipeGraph.addConsumablePacketToInputStream(
-            videoInputStream, imagePacket, timestamp);
+        mediapipeGraph.addConsumablePacketToInputStream(videoInputStream, imagePacket, timestamp);
         // If addConsumablePacket succeeded, we don't need to release the packet ourselves.
         imagePacket = null;
       } catch (MediaPipeException e) {
@@ -528,6 +546,7 @@ public class FrameProcessor implements TextureFrameProcessor, AudioDataProcessor
 
   /**
    * Starts running the MediaPipe graph.
+   *
    * @throws MediaPipeException for any error status.
    */
   private void startGraph() {

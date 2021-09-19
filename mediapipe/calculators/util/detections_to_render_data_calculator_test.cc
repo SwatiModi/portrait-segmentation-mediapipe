@@ -30,6 +30,10 @@
 
 namespace mediapipe {
 
+constexpr char kDetectionsTag[] = "DETECTIONS";
+constexpr char kRenderDataTag[] = "RENDER_DATA";
+constexpr char kDetectionListTag[] = "DETECTION_LIST";
+
 using ::testing::DoubleNear;
 
 // Error tolerance for pixels, distances, etc.
@@ -85,11 +89,11 @@ Detection CreateDetection(const std::vector<std::string>& labels,
 }
 
 TEST(DetectionsToRenderDataCalculatorTest, OnlyDetecctionList) {
-  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
     calculator: "DetectionsToRenderDataCalculator"
     input_stream: "DETECTION_LIST:detection_list"
     output_stream: "RENDER_DATA:render_data"
-  )"));
+  )pb"));
 
   LocationData location_data = CreateLocationData(100, 200, 300, 400);
   auto detections(absl::make_unique<DetectionList>());
@@ -97,13 +101,13 @@ TEST(DetectionsToRenderDataCalculatorTest, OnlyDetecctionList) {
       CreateDetection({"label1"}, {}, {0.3}, location_data, "feature_tag");
 
   runner.MutableInputs()
-      ->Tag("DETECTION_LIST")
+      ->Tag(kDetectionListTag)
       .packets.push_back(
           Adopt(detections.release()).At(Timestamp::PostStream()));
 
   MP_ASSERT_OK(runner.Run()) << "Calculator execution failed.";
   const std::vector<Packet>& output =
-      runner.Outputs().Tag("RENDER_DATA").packets;
+      runner.Outputs().Tag(kRenderDataTag).packets;
   ASSERT_EQ(1, output.size());
   const auto& actual = output[0].Get<RenderData>();
   EXPECT_EQ(actual.render_annotations_size(), 3);
@@ -119,11 +123,11 @@ TEST(DetectionsToRenderDataCalculatorTest, OnlyDetecctionList) {
 }
 
 TEST(DetectionsToRenderDataCalculatorTest, OnlyDetecctionVector) {
-  CalculatorRunner runner{ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+  CalculatorRunner runner{ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
     calculator: "DetectionsToRenderDataCalculator"
     input_stream: "DETECTIONS:detections"
     output_stream: "RENDER_DATA:render_data"
-  )")};
+  )pb")};
 
   LocationData location_data = CreateLocationData(100, 200, 300, 400);
   auto detections(absl::make_unique<std::vector<Detection>>());
@@ -131,13 +135,13 @@ TEST(DetectionsToRenderDataCalculatorTest, OnlyDetecctionVector) {
       CreateDetection({"label1"}, {}, {0.3}, location_data, "feature_tag"));
 
   runner.MutableInputs()
-      ->Tag("DETECTIONS")
+      ->Tag(kDetectionsTag)
       .packets.push_back(
           Adopt(detections.release()).At(Timestamp::PostStream()));
 
   MP_ASSERT_OK(runner.Run()) << "Calculator execution failed.";
   const std::vector<Packet>& output =
-      runner.Outputs().Tag("RENDER_DATA").packets;
+      runner.Outputs().Tag(kRenderDataTag).packets;
   ASSERT_EQ(1, output.size());
   const auto& actual = output[0].Get<RenderData>();
   EXPECT_EQ(actual.render_annotations_size(), 3);
@@ -153,19 +157,19 @@ TEST(DetectionsToRenderDataCalculatorTest, OnlyDetecctionVector) {
 }
 
 TEST(DetectionsToRenderDataCalculatorTest, BothDetecctionListAndVector) {
-  CalculatorRunner runner{ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+  CalculatorRunner runner{ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
     calculator: "DetectionsToRenderDataCalculator"
     input_stream: "DETECTION_LIST:detection_list"
     input_stream: "DETECTIONS:detections"
     output_stream: "RENDER_DATA:render_data"
-  )")};
+  )pb")};
 
   LocationData location_data1 = CreateLocationData(100, 200, 300, 400);
   auto detection_list(absl::make_unique<DetectionList>());
   *(detection_list->add_detection()) =
       CreateDetection({"label1"}, {}, {0.3}, location_data1, "feature_tag1");
   runner.MutableInputs()
-      ->Tag("DETECTION_LIST")
+      ->Tag(kDetectionListTag)
       .packets.push_back(
           Adopt(detection_list.release()).At(Timestamp::PostStream()));
 
@@ -174,13 +178,13 @@ TEST(DetectionsToRenderDataCalculatorTest, BothDetecctionListAndVector) {
   detections->push_back(
       CreateDetection({"label2"}, {}, {0.6}, location_data2, "feature_tag2"));
   runner.MutableInputs()
-      ->Tag("DETECTIONS")
+      ->Tag(kDetectionsTag)
       .packets.push_back(
           Adopt(detections.release()).At(Timestamp::PostStream()));
 
   MP_ASSERT_OK(runner.Run()) << "Calculator execution failed.";
   const std::vector<Packet>& actual =
-      runner.Outputs().Tag("RENDER_DATA").packets;
+      runner.Outputs().Tag(kRenderDataTag).packets;
   ASSERT_EQ(1, actual.size());
   // Check the feature tag for item from detection list.
   EXPECT_EQ(
@@ -194,63 +198,65 @@ TEST(DetectionsToRenderDataCalculatorTest, BothDetecctionListAndVector) {
 
 TEST(DetectionsToRenderDataCalculatorTest, ProduceEmptyPacket) {
   // Check when produce_empty_packet is false.
-  CalculatorRunner runner1{ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
-    calculator: "DetectionsToRenderDataCalculator"
-    input_stream: "DETECTION_LIST:detection_list"
-    input_stream: "DETECTIONS:detections"
-    output_stream: "RENDER_DATA:render_data"
-    options {
-      [mediapipe.DetectionsToRenderDataCalculatorOptions.ext] {
-        produce_empty_packet: false
-      }
-    }
-  )")};
+  CalculatorRunner runner1{
+      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
+        calculator: "DetectionsToRenderDataCalculator"
+        input_stream: "DETECTION_LIST:detection_list"
+        input_stream: "DETECTIONS:detections"
+        output_stream: "RENDER_DATA:render_data"
+        options {
+          [mediapipe.DetectionsToRenderDataCalculatorOptions.ext] {
+            produce_empty_packet: false
+          }
+        }
+      )pb")};
 
   auto detection_list1(absl::make_unique<DetectionList>());
   runner1.MutableInputs()
-      ->Tag("DETECTION_LIST")
+      ->Tag(kDetectionListTag)
       .packets.push_back(
           Adopt(detection_list1.release()).At(Timestamp::PostStream()));
 
   auto detections1(absl::make_unique<std::vector<Detection>>());
   runner1.MutableInputs()
-      ->Tag("DETECTIONS")
+      ->Tag(kDetectionsTag)
       .packets.push_back(
           Adopt(detections1.release()).At(Timestamp::PostStream()));
 
   MP_ASSERT_OK(runner1.Run()) << "Calculator execution failed.";
   const std::vector<Packet>& exact1 =
-      runner1.Outputs().Tag("RENDER_DATA").packets;
+      runner1.Outputs().Tag(kRenderDataTag).packets;
   ASSERT_EQ(0, exact1.size());
 
   // Check when produce_empty_packet is true.
-  CalculatorRunner runner2{ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
-    calculator: "DetectionsToRenderDataCalculator"
-    input_stream: "DETECTION_LIST:detection_list"
-    input_stream: "DETECTIONS:detections"
-    output_stream: "RENDER_DATA:render_data"
-    options {
-      [mediapipe.DetectionsToRenderDataCalculatorOptions.ext] {
-        produce_empty_packet: true
-      }
-    }
-  )")};
+  CalculatorRunner runner2{
+      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
+        calculator: "DetectionsToRenderDataCalculator"
+        input_stream: "DETECTION_LIST:detection_list"
+        input_stream: "DETECTIONS:detections"
+        output_stream: "RENDER_DATA:render_data"
+        options {
+          [mediapipe.DetectionsToRenderDataCalculatorOptions.ext] {
+            produce_empty_packet: true
+          }
+        }
+      )pb")};
 
   auto detection_list2(absl::make_unique<DetectionList>());
   runner2.MutableInputs()
-      ->Tag("DETECTION_LIST")
+      ->Tag(kDetectionListTag)
       .packets.push_back(
           Adopt(detection_list2.release()).At(Timestamp::PostStream()));
 
   auto detections2(absl::make_unique<std::vector<Detection>>());
   runner2.MutableInputs()
-      ->Tag("DETECTIONS")
+      ->Tag(kDetectionsTag)
       .packets.push_back(
           Adopt(detections2.release()).At(Timestamp::PostStream()));
 
   MP_ASSERT_OK(runner2.Run()) << "Calculator execution failed.";
   const std::vector<Packet>& exact2 =
-      runner2.Outputs().Tag("RENDER_DATA").packets;
+      runner2.Outputs().Tag(kRenderDataTag).packets;
   ASSERT_EQ(1, exact2.size());
   EXPECT_EQ(exact2[0].Get<RenderData>().render_annotations_size(), 0);
 }

@@ -32,6 +32,10 @@
 namespace mediapipe {
 namespace autoflip {
 
+constexpr char kRegionsTag[] = "REGIONS";
+constexpr char kFacesTag[] = "FACES";
+constexpr char kVideoTag[] = "VIDEO";
+
 // This calculator converts detected faces to SalientRegion protos that can be
 // used for downstream processing. Each SalientRegion is scored using image
 // cues. Scoring can be controlled through
@@ -55,9 +59,9 @@ class FaceToRegionCalculator : public CalculatorBase {
   FaceToRegionCalculator(const FaceToRegionCalculator&) = delete;
   FaceToRegionCalculator& operator=(const FaceToRegionCalculator&) = delete;
 
-  static ::mediapipe::Status GetContract(mediapipe::CalculatorContract* cc);
-  ::mediapipe::Status Open(mediapipe::CalculatorContext* cc) override;
-  ::mediapipe::Status Process(mediapipe::CalculatorContext* cc) override;
+  static absl::Status GetContract(mediapipe::CalculatorContract* cc);
+  absl::Status Open(mediapipe::CalculatorContext* cc) override;
+  absl::Status Process(mediapipe::CalculatorContext* cc) override;
 
  private:
   double NormalizeX(const int pixel);
@@ -78,20 +82,19 @@ REGISTER_CALCULATOR(FaceToRegionCalculator);
 
 FaceToRegionCalculator::FaceToRegionCalculator() {}
 
-::mediapipe::Status FaceToRegionCalculator::GetContract(
+absl::Status FaceToRegionCalculator::GetContract(
     mediapipe::CalculatorContract* cc) {
-  if (cc->Inputs().HasTag("VIDEO")) {
-    cc->Inputs().Tag("VIDEO").Set<ImageFrame>();
+  if (cc->Inputs().HasTag(kVideoTag)) {
+    cc->Inputs().Tag(kVideoTag).Set<ImageFrame>();
   }
-  cc->Inputs().Tag("FACES").Set<std::vector<mediapipe::Detection>>();
-  cc->Outputs().Tag("REGIONS").Set<DetectionSet>();
-  return ::mediapipe::OkStatus();
+  cc->Inputs().Tag(kFacesTag).Set<std::vector<mediapipe::Detection>>();
+  cc->Outputs().Tag(kRegionsTag).Set<DetectionSet>();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status FaceToRegionCalculator::Open(
-    mediapipe::CalculatorContext* cc) {
+absl::Status FaceToRegionCalculator::Open(mediapipe::CalculatorContext* cc) {
   options_ = cc->Options<FaceToRegionCalculatorOptions>();
-  if (!cc->Inputs().HasTag("VIDEO")) {
+  if (!cc->Inputs().HasTag(kVideoTag)) {
     RET_CHECK(!options_.use_visual_scorer())
         << "VIDEO input must be provided when using visual_scorer.";
     RET_CHECK(!options_.export_individual_face_landmarks())
@@ -105,7 +108,7 @@ FaceToRegionCalculator::FaceToRegionCalculator() {}
   scorer_ = absl::make_unique<VisualScorer>(options_.scorer_options());
   frame_width_ = -1;
   frame_height_ = -1;
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 inline double FaceToRegionCalculator::NormalizeX(const int pixel) {
@@ -146,26 +149,25 @@ void FaceToRegionCalculator::ExtendSalientRegionWithPoint(
   }
 }
 
-::mediapipe::Status FaceToRegionCalculator::Process(
-    mediapipe::CalculatorContext* cc) {
-  if (cc->Inputs().HasTag("VIDEO") &&
-      cc->Inputs().Tag("VIDEO").Value().IsEmpty()) {
-    return ::mediapipe::UnknownErrorBuilder(MEDIAPIPE_LOC)
+absl::Status FaceToRegionCalculator::Process(mediapipe::CalculatorContext* cc) {
+  if (cc->Inputs().HasTag(kVideoTag) &&
+      cc->Inputs().Tag(kVideoTag).Value().IsEmpty()) {
+    return mediapipe::UnknownErrorBuilder(MEDIAPIPE_LOC)
            << "No VIDEO input at time " << cc->InputTimestamp().Seconds();
   }
 
   cv::Mat frame;
-  if (cc->Inputs().HasTag("VIDEO")) {
+  if (cc->Inputs().HasTag(kVideoTag)) {
     frame = mediapipe::formats::MatView(
-        &cc->Inputs().Tag("VIDEO").Get<ImageFrame>());
+        &cc->Inputs().Tag(kVideoTag).Get<ImageFrame>());
     frame_width_ = frame.cols;
     frame_height_ = frame.rows;
   }
 
   auto region_set = ::absl::make_unique<DetectionSet>();
-  if (!cc->Inputs().Tag("FACES").Value().IsEmpty()) {
+  if (!cc->Inputs().Tag(kFacesTag).Value().IsEmpty()) {
     const auto& input_faces =
-        cc->Inputs().Tag("FACES").Get<std::vector<mediapipe::Detection>>();
+        cc->Inputs().Tag(kFacesTag).Get<std::vector<mediapipe::Detection>>();
 
     for (const auto& input_face : input_faces) {
       RET_CHECK(input_face.location_data().format() ==
@@ -278,9 +280,11 @@ void FaceToRegionCalculator::ExtendSalientRegionWithPoint(
       }
     }
   }
-  cc->Outputs().Tag("REGIONS").Add(region_set.release(), cc->InputTimestamp());
+  cc->Outputs()
+      .Tag(kRegionsTag)
+      .Add(region_set.release(), cc->InputTimestamp());
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace autoflip

@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
 #include "mediapipe/calculators/image/opencv_image_encoder_calculator.pb.h"
 #include "mediapipe/calculators/tensorflow/pack_media_sequence_calculator.pb.h"
@@ -36,13 +37,14 @@ const char kSequenceExampleTag[] = "SEQUENCE_EXAMPLE";
 const char kImageTag[] = "IMAGE";
 const char kFloatContextFeaturePrefixTag[] = "FLOAT_CONTEXT_FEATURE_";
 const char kFloatFeaturePrefixTag[] = "FLOAT_FEATURE_";
+const char kBytesFeaturePrefixTag[] = "BYTES_FEATURE_";
 const char kForwardFlowEncodedTag[] = "FORWARD_FLOW_ENCODED";
 const char kBBoxTag[] = "BBOX";
 const char kKeypointsTag[] = "KEYPOINTS";
 const char kSegmentationMaskTag[] = "CLASS_SEGMENTATION";
 
 namespace tf = ::tensorflow;
-namespace mpms = ::mediapipe::mediasequence;
+namespace mpms = mediapipe::mediasequence;
 
 // Sink calculator to package streams into tf.SequenceExamples.
 //
@@ -57,7 +59,7 @@ namespace mpms = ::mediapipe::mediasequence;
 // bounding boxes from vector<Detections>, and streams with the
 // "FLOAT_FEATURE_${NAME}" pattern, which stores the values from vector<float>'s
 // associated with the name ${NAME}. "KEYPOINTS" stores a map of 2D keypoints
-// from unordered_map<std::string, vector<pair<float, float>>>. "IMAGE_${NAME}",
+// from flat_hash_map<std::string, vector<pair<float, float>>>. "IMAGE_${NAME}",
 // "BBOX_${NAME}", and "KEYPOINTS_${NAME}" will also store prefixed versions of
 // each stream, which allows for multiple image streams to be included. However,
 // the default names are suppored by more tools.
@@ -93,7 +95,7 @@ uint8 ConvertFloatToByte(const float float_value) {
 
 class PackMediaSequenceCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     RET_CHECK(cc->InputSidePackets().HasTag(kSequenceExampleTag));
     cc->InputSidePackets().Tag(kSequenceExampleTag).Set<tf::SequenceExample>();
 
@@ -131,8 +133,8 @@ class PackMediaSequenceCalculator : public CalculatorBase {
         }
         cc->Inputs()
             .Tag(tag)
-            .Set<std::unordered_map<std::string,
-                                    std::vector<std::pair<float, float>>>>();
+            .Set<absl::flat_hash_map<std::string,
+                                     std::vector<std::pair<float, float>>>>();
       }
       if (absl::StartsWith(tag, kBBoxTag)) {
         std::string key = "";
@@ -152,6 +154,9 @@ class PackMediaSequenceCalculator : public CalculatorBase {
       if (absl::StartsWith(tag, kFloatFeaturePrefixTag)) {
         cc->Inputs().Tag(tag).Set<std::vector<float>>();
       }
+      if (absl::StartsWith(tag, kBytesFeaturePrefixTag)) {
+        cc->Inputs().Tag(tag).Set<std::vector<std::string>>();
+      }
     }
 
     CHECK(cc->Outputs().HasTag(kSequenceExampleTag) ||
@@ -166,10 +171,10 @@ class PackMediaSequenceCalculator : public CalculatorBase {
           .Tag(kSequenceExampleTag)
           .Set<tf::SequenceExample>();
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
+  absl::Status Open(CalculatorContext* cc) override {
     sequence_ = ::absl::make_unique<tf::SequenceExample>(
         cc->InputSidePackets()
             .Tag(kSequenceExampleTag)
@@ -184,6 +189,7 @@ class PackMediaSequenceCalculator : public CalculatorBase {
       features_present_[tag] = false;
     }
 
+    replace_keypoints_ = false;
     if (cc->Options<PackMediaSequenceCalculatorOptions>()
             .replace_data_instead_of_append()) {
       for (const auto& tag : cc->Inputs().GetTags()) {
@@ -212,6 +218,15 @@ class PackMediaSequenceCalculator : public CalculatorBase {
           }
           mpms::ClearBBox(key, sequence_.get());
           mpms::ClearBBoxTimestamp(key, sequence_.get());
+          mpms::ClearBBoxIsAnnotated(key, sequence_.get());
+          mpms::ClearBBoxNumRegions(key, sequence_.get());
+          mpms::ClearBBoxLabelString(key, sequence_.get());
+          mpms::ClearBBoxLabelIndex(key, sequence_.get());
+          mpms::ClearBBoxClassString(key, sequence_.get());
+          mpms::ClearBBoxClassIndex(key, sequence_.get());
+          mpms::ClearBBoxTrackString(key, sequence_.get());
+          mpms::ClearBBoxTrackIndex(key, sequence_.get());
+          mpms::ClearUnmodifiedBBoxTimestamp(key, sequence_.get());
         }
         if (absl::StartsWith(tag, kFloatFeaturePrefixTag)) {
           std::string key = tag.substr(sizeof(kFloatFeaturePrefixTag) /
@@ -220,11 +235,17 @@ class PackMediaSequenceCalculator : public CalculatorBase {
           mpms::ClearFeatureFloats(key, sequence_.get());
           mpms::ClearFeatureTimestamp(key, sequence_.get());
         }
+        if (absl::StartsWith(tag, kBytesFeaturePrefixTag)) {
+          std::string key = tag.substr(sizeof(kBytesFeaturePrefixTag) /
+                                           sizeof(*kBytesFeaturePrefixTag) -
+                                       1);
+          mpms::ClearFeatureBytes(key, sequence_.get());
+          mpms::ClearFeatureTimestamp(key, sequence_.get());
+        }
         if (absl::StartsWith(tag, kKeypointsTag)) {
           std::string key =
               tag.substr(sizeof(kKeypointsTag) / sizeof(*kKeypointsTag) - 1);
-          mpms::ClearBBoxPoint(key, sequence_.get());
-          mpms::ClearBBoxTimestamp(key, sequence_.get());
+          replace_keypoints_ = true;
         }
       }
       if (cc->Inputs().HasTag(kForwardFlowEncodedTag)) {
@@ -233,15 +254,10 @@ class PackMediaSequenceCalculator : public CalculatorBase {
       }
     }
 
-    if (cc->Outputs().HasTag(kSequenceExampleTag)) {
-      cc->Outputs()
-          .Tag(kSequenceExampleTag)
-          .SetNextTimestampBound(Timestamp::Max());
-    }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status VerifySequence() {
+  absl::Status VerifySequence() {
     std::string error_msg = "Missing features - ";
     bool all_present = true;
     for (const auto& iter : features_present_) {
@@ -251,13 +267,24 @@ class PackMediaSequenceCalculator : public CalculatorBase {
       }
     }
     if (all_present) {
-      return ::mediapipe::OkStatus();
+      return absl::OkStatus();
     } else {
       return ::mediapipe::NotFoundErrorBuilder(MEDIAPIPE_LOC) << error_msg;
     }
   }
 
-  ::mediapipe::Status Close(CalculatorContext* cc) override {
+  absl::Status VerifySize() {
+    const int64 MAX_PROTO_BYTES = 1073741823;
+    std::string id = mpms::HasExampleId(*sequence_)
+                         ? mpms::GetExampleId(*sequence_)
+                         : "example";
+    RET_CHECK_LT(sequence_->ByteSizeLong(), MAX_PROTO_BYTES)
+        << "sequence '" << id
+        << "' would be too many bytes to serialize after adding features.";
+    return absl::OkStatus();
+  }
+
+  absl::Status Close(CalculatorContext* cc) override {
     auto& options = cc->Options<PackMediaSequenceCalculatorOptions>();
     if (options.reconcile_metadata()) {
       RET_CHECK_OK(mpms::ReconcileMetadata(
@@ -265,8 +292,11 @@ class PackMediaSequenceCalculator : public CalculatorBase {
           options.reconcile_region_annotations(), sequence_.get()));
     }
 
+    if (options.skip_large_sequences()) {
+      RET_CHECK_OK(VerifySize());
+    }
     if (options.output_only_if_all_present()) {
-      ::mediapipe::Status status = VerifySequence();
+      absl::Status status = VerifySequence();
       if (!status.ok()) {
         cc->GetCounter(status.ToString())->Increment();
         return status;
@@ -281,14 +311,16 @@ class PackMediaSequenceCalculator : public CalculatorBase {
     if (cc->Outputs().HasTag(kSequenceExampleTag)) {
       cc->Outputs()
           .Tag(kSequenceExampleTag)
-          .Add(sequence_.release(), Timestamp::PostStream());
+          .Add(sequence_.release(), options.output_as_zero_timestamp()
+                                        ? Timestamp(0ll)
+                                        : Timestamp::PostStream());
     }
     sequence_.reset();
 
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     int image_height = -1;
     int image_width = -1;
     // Because the tag order may vary, we need to loop through tags to get
@@ -339,14 +371,28 @@ class PackMediaSequenceCalculator : public CalculatorBase {
         const auto& keypoints =
             cc->Inputs()
                 .Tag(tag)
-                .Get<std::unordered_map<
+                .Get<absl::flat_hash_map<
                     std::string, std::vector<std::pair<float, float>>>>();
         for (const auto& pair : keypoints) {
-          mpms::AddBBoxTimestamp(mpms::merge_prefix(key, pair.first),
-                                 cc->InputTimestamp().Value(), sequence_.get());
-          mpms::AddBBoxPoint(mpms::merge_prefix(key, pair.first), pair.second,
-                             sequence_.get());
+          std::string prefix = mpms::merge_prefix(key, pair.first);
+          if (replace_keypoints_) {
+            mpms::ClearBBoxPoint(prefix, sequence_.get());
+            mpms::ClearBBoxTimestamp(prefix, sequence_.get());
+            mpms::ClearBBoxIsAnnotated(prefix, sequence_.get());
+            mpms::ClearBBoxNumRegions(prefix, sequence_.get());
+            mpms::ClearBBoxLabelString(prefix, sequence_.get());
+            mpms::ClearBBoxLabelIndex(prefix, sequence_.get());
+            mpms::ClearBBoxClassString(prefix, sequence_.get());
+            mpms::ClearBBoxClassIndex(prefix, sequence_.get());
+            mpms::ClearBBoxTrackString(prefix, sequence_.get());
+            mpms::ClearBBoxTrackIndex(prefix, sequence_.get());
+            mpms::ClearUnmodifiedBBoxTimestamp(prefix, sequence_.get());
+          }
+          mpms::AddBBoxTimestamp(prefix, cc->InputTimestamp().Value(),
+                                 sequence_.get());
+          mpms::AddBBoxPoint(prefix, pair.second, sequence_.get());
         }
+        replace_keypoints_ = false;
       }
       if (absl::StartsWith(tag, kFloatContextFeaturePrefixTag) &&
           !cc->Inputs().Tag(tag).IsEmpty()) {
@@ -369,6 +415,17 @@ class PackMediaSequenceCalculator : public CalculatorBase {
         mpms::AddFeatureFloats(key,
                                cc->Inputs().Tag(tag).Get<std::vector<float>>(),
                                sequence_.get());
+      }
+      if (absl::StartsWith(tag, kBytesFeaturePrefixTag) &&
+          !cc->Inputs().Tag(tag).IsEmpty()) {
+        std::string key = tag.substr(sizeof(kBytesFeaturePrefixTag) /
+                                         sizeof(*kBytesFeaturePrefixTag) -
+                                     1);
+        mpms::AddFeatureTimestamp(key, cc->InputTimestamp().Value(),
+                                  sequence_.get());
+        mpms::AddFeatureBytes(
+            key, cc->Inputs().Tag(tag).Get<std::vector<std::string>>(),
+            sequence_.get());
       }
       if (absl::StartsWith(tag, kBBoxTag) && !cc->Inputs().Tag(tag).IsEmpty()) {
         std::string key = "";
@@ -465,16 +522,17 @@ class PackMediaSequenceCalculator : public CalculatorBase {
                                                      sequence_.get());
           already_has_mask = true;
         } else {
-          return ::mediapipe::UnimplementedError(
+          return absl::UnimplementedError(
               "Global detections and empty detections are not supported.");
         }
       }
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
   std::unique_ptr<tf::SequenceExample> sequence_;
   std::map<std::string, bool> features_present_;
+  bool replace_keypoints_;
 };
 REGISTER_CALCULATOR(PackMediaSequenceCalculator);
 

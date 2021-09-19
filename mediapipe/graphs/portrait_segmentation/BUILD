@@ -17,7 +17,7 @@ load(
     "mediapipe_binary_graph",
 )
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:public"])
 
@@ -55,7 +55,7 @@ cc_library(
 
 mediapipe_binary_graph(
     name = "mobile_gpu_binary_graph",
-    graph = "portrait_segmentation.pbtxt",
+    graph = "portrait_segmentation_mobile_gpu.pbtxt",
     output_name = "mobile_gpu.binarypb",
     deps = [":mobile_calculators"],
 )

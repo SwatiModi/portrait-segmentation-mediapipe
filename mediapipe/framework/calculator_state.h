@@ -27,11 +27,12 @@
 #include "mediapipe/framework/counter.h"
 #include "mediapipe/framework/counter_factory.h"
 #include "mediapipe/framework/graph_service.h"
+#include "mediapipe/framework/graph_service_manager.h"
 #include "mediapipe/framework/packet.h"
 #include "mediapipe/framework/packet_set.h"
 #include "mediapipe/framework/port.h"
 #include "mediapipe/framework/port/any_proto.h"
-#include "mediapipe/framework/tool/options_util.h"
+#include "mediapipe/framework/tool/options_map.h"
 
 namespace mediapipe {
 
@@ -52,14 +53,6 @@ class CalculatorState {
   CalculatorState& operator=(const CalculatorState&) = delete;
   ~CalculatorState();
 
-  // Sets the pointer to the InputStreamSet. The function is invoked by
-  // CalculatorNode::PrepareForRun.
-  void SetInputStreamSet(InputStreamSet* input_stream_set);
-
-  // Sets the pointer to the OutputStreamSet. The function is invoked by
-  // CalculatorNode::PrepareForRun.
-  void SetOutputStreamSet(OutputStreamSet* output_stream_set);
-
   // Called before every call to Calculator::Open() (during the PrepareForRun
   // phase).
   void ResetBetweenRuns();
@@ -79,14 +72,17 @@ class CalculatorState {
   ////////////////////////////////////////
   // Interface for Calculator.
   ////////////////////////////////////////
-  const InputStreamSet& InputStreams() const { return *input_streams_; }
-  const OutputStreamSet& OutputStreams() const { return *output_streams_; }
   const PacketSet& InputSidePackets() const { return *input_side_packets_; }
   OutputSidePacketSet& OutputSidePackets() { return *output_side_packets_; }
 
   // Returns a counter using the graph's counter factory. The counter's
   // name is the passed-in name, prefixed by the calculator NodeName.
   Counter* GetCounter(const std::string& name);
+
+  // Returns a counter set, which can be passed to other classes, to generate
+  // counters.  NOTE: This differs from GetCounter, in that the counters
+  // created by this counter set do not have the NodeName prefix.
+  CounterFactory* GetCounterFactory();
 
   std::shared_ptr<ProfilingContext> GetSharedProfilingContext() const {
     return profiling_context_;
@@ -104,17 +100,14 @@ class CalculatorState {
     counter_factory_ = counter_factory;
   }
 
-  void SetServicePacket(const std::string& key, Packet packet);
-
-  bool IsServiceAvailable(const GraphServiceBase& service) {
-    return ContainsKey(service_packets_, service.key);
+  absl::Status SetServicePacket(const GraphServiceBase& service,
+                                Packet packet) {
+    return graph_service_manager_.SetServicePacket(service, packet);
   }
 
   template <typename T>
-  T& GetServiceObject(const GraphService<T>& service) {
-    auto it = service_packets_.find(service.key);
-    CHECK(it != service_packets_.end());
-    return *it->second.template Get<std::shared_ptr<T>>();
+  std::shared_ptr<T> GetServiceObject(const GraphService<T>& service) {
+    return graph_service_manager_.GetServiceObject(service);
   }
 
  private:
@@ -134,17 +127,11 @@ class CalculatorState {
   // The graph tracing and profiling interface.
   std::shared_ptr<ProfilingContext> profiling_context_;
 
-  std::map<std::string, Packet> service_packets_;
+  GraphServiceManager graph_service_manager_;
 
   ////////////////////////////////////////
   // Variables which ARE cleared by ResetBetweenRuns().
   ////////////////////////////////////////
-  // The InputStreamSet object is owned by the CalculatorNode.
-  // CalculatorState obtains its pointer in CalculatorNode::PrepareForRun.
-  InputStreamSet* input_streams_;
-  // The OutputStreamSet object is owned by the CalculatorNode.
-  // CalculatorState obtains its pointer in CalculatorNode::PrepareForRun.
-  OutputStreamSet* output_streams_;
   // The set of input side packets set by CalculatorNode::PrepareForRun().
   // ResetBetweenRuns() clears this PacketSet pointer.
   const PacketSet* input_side_packets_;

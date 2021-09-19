@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 cc_library(
     name = "base",
@@ -28,6 +28,7 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        "//mediapipe/framework/port:file_helpers",
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:status",
         "@com_google_absl//absl/base",

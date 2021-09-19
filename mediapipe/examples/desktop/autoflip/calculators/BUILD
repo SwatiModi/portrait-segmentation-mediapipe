@@ -14,11 +14,13 @@ load("//mediapipe/framework/port:build_config.bzl", "mediapipe_cc_proto_library"
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = [
+    "//buzz/diffractor/mediapipe:__subpackages__",
     "//mediapipe/examples:__subpackages__",
     "//mediapipe/viz:__subpackages__",
+    "//mediapipe/web/solutions:__subpackages__",
 ])
 
 cc_library(
@@ -55,17 +57,26 @@ mediapipe_cc_proto_library(
 )
 
 cc_library(
+    name = "content_zooming_calculator_state",
+    hdrs = ["content_zooming_calculator_state.h"],
+    deps = [
+        "//mediapipe/examples/desktop/autoflip/quality:kinematic_path_solver",
+        "//mediapipe/framework:timestamp",
+        "//mediapipe/framework/formats:rect_cc_proto",
+    ],
+)
+
+cc_library(
     name = "content_zooming_calculator",
     srcs = ["content_zooming_calculator.cc"],
     deps = [
         ":content_zooming_calculator_cc_proto",
+        ":content_zooming_calculator_state",
         "//mediapipe/examples/desktop/autoflip:autoflip_messages_cc_proto",
-        "//mediapipe/examples/desktop/autoflip/quality:kinematic_path_solver",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/formats:detection_cc_proto",
         "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/formats:location_data_cc_proto",
-        "//mediapipe/framework/formats:rect_cc_proto",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:status",
     ],
@@ -88,7 +99,9 @@ mediapipe_cc_proto_library(
         "//mediapipe/examples/desktop/autoflip/quality:kinematic_path_solver_cc_proto",
         "//mediapipe/framework:calculator_cc_proto",
     ],
-    visibility = ["//mediapipe/examples:__subpackages__"],
+    visibility = [
+        "//mediapipe/examples:__subpackages__",
+    ],
     deps = [
         ":content_zooming_calculator_proto",
     ],
@@ -127,6 +140,7 @@ cc_test(
     deps = [
         ":content_zooming_calculator",
         ":content_zooming_calculator_cc_proto",
+        ":content_zooming_calculator_state",
         "//mediapipe/examples/desktop/autoflip:autoflip_messages_cc_proto",
         "//mediapipe/examples/desktop/autoflip/quality:kinematic_path_solver",
         "//mediapipe/framework:calculator_framework",
@@ -375,6 +389,7 @@ cc_test(
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:status",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
     ],
 )

@@ -106,7 +106,15 @@ Detection GetAxisAlignedDetectionFromTrackedDetection(
   } else {
     detection.set_detection_id(tracked_detection.unique_id());
   }
+
+  // Sort the labels by descending scores.
+  std::vector<std::pair<std::string, float>> labels_and_scores;
   for (const auto& label_and_score : tracked_detection.label_to_score_map()) {
+    labels_and_scores.push_back(label_and_score);
+  }
+  std::sort(labels_and_scores.begin(), labels_and_scores.end(),
+            [](const auto& a, const auto& b) { return a.second > b.second; });
+  for (const auto& label_and_score : labels_and_scores) {
     detection.add_label(label_and_score.first);
     detection.add_score(label_and_score.second);
   }
@@ -139,10 +147,10 @@ Detection GetAxisAlignedDetectionFromTrackedDetection(
 // }
 class TrackedDetectionManagerCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
+  static absl::Status GetContract(CalculatorContract* cc);
+  absl::Status Open(CalculatorContext* cc) override;
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
 
  private:
   // Adds new list of detections to |waiting_for_update_detections_|.
@@ -161,7 +169,7 @@ class TrackedDetectionManagerCalculator : public CalculatorBase {
 };
 REGISTER_CALCULATOR(TrackedDetectionManagerCalculator);
 
-::mediapipe::Status TrackedDetectionManagerCalculator::GetContract(
+absl::Status TrackedDetectionManagerCalculator::GetContract(
     CalculatorContract* cc) {
   if (cc->Inputs().HasTag(kDetectionsTag)) {
     cc->Inputs().Tag(kDetectionsTag).Set<std::vector<Detection>>();
@@ -183,104 +191,100 @@ REGISTER_CALCULATOR(TrackedDetectionManagerCalculator);
     cc->Outputs().Tag(kDetectionBoxesTag).Set<std::vector<NormalizedRect>>();
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TrackedDetectionManagerCalculator::Open(
-    CalculatorContext* cc) {
+absl::Status TrackedDetectionManagerCalculator::Open(CalculatorContext* cc) {
   mediapipe::TrackedDetectionManagerCalculatorOptions options =
       cc->Options<mediapipe::TrackedDetectionManagerCalculatorOptions>();
   tracked_detection_manager_.SetConfig(
       options.tracked_detection_manager_options());
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TrackedDetectionManagerCalculator::Process(
-    CalculatorContext* cc) {
-  if (cc->Inputs().HasTag("TRACKING_BOXES")) {
-    if (!cc->Inputs().Tag("TRACKING_BOXES").IsEmpty()) {
-      const TimedBoxProtoList& tracked_boxes =
-          cc->Inputs().Tag("TRACKING_BOXES").Get<TimedBoxProtoList>();
+absl::Status TrackedDetectionManagerCalculator::Process(CalculatorContext* cc) {
+  if (cc->Inputs().HasTag(kTrackingBoxesTag) &&
+      !cc->Inputs().Tag(kTrackingBoxesTag).IsEmpty()) {
+    const TimedBoxProtoList& tracked_boxes =
+        cc->Inputs().Tag(kTrackingBoxesTag).Get<TimedBoxProtoList>();
 
-      // Collect all detections that are removed.
-      auto removed_detection_ids = absl::make_unique<std::vector<int>>();
-      for (const TimedBoxProto& tracked_box : tracked_boxes.box()) {
-        NormalizedRect bounding_box;
-        bounding_box.set_x_center((tracked_box.left() + tracked_box.right()) /
-                                  2.f);
-        bounding_box.set_y_center((tracked_box.bottom() + tracked_box.top()) /
-                                  2.f);
-        bounding_box.set_height(tracked_box.bottom() - tracked_box.top());
-        bounding_box.set_width(tracked_box.right() - tracked_box.left());
-        bounding_box.set_rotation(tracked_box.rotation());
-        // First check if this box updates a detection that's waiting for
-        // update from the tracker.
-        auto waiting_for_update_detectoin_ptr =
-            waiting_for_update_detections_.find(tracked_box.id());
-        if (waiting_for_update_detectoin_ptr !=
-            waiting_for_update_detections_.end()) {
-          // Add the detection and remove duplicated detections.
-          auto removed_ids = tracked_detection_manager_.AddDetection(
-              std::move(waiting_for_update_detectoin_ptr->second));
-          MoveIds(removed_detection_ids.get(), std::move(removed_ids));
-
-          waiting_for_update_detections_.erase(
-              waiting_for_update_detectoin_ptr);
-        }
-        auto removed_ids = tracked_detection_manager_.UpdateDetectionLocation(
-            tracked_box.id(), bounding_box, tracked_box.time_msec());
+    // Collect all detections that are removed.
+    auto removed_detection_ids = absl::make_unique<std::vector<int>>();
+    for (const TimedBoxProto& tracked_box : tracked_boxes.box()) {
+      NormalizedRect bounding_box;
+      bounding_box.set_x_center((tracked_box.left() + tracked_box.right()) /
+                                2.f);
+      bounding_box.set_y_center((tracked_box.bottom() + tracked_box.top()) /
+                                2.f);
+      bounding_box.set_height(tracked_box.bottom() - tracked_box.top());
+      bounding_box.set_width(tracked_box.right() - tracked_box.left());
+      bounding_box.set_rotation(tracked_box.rotation());
+      // First check if this box updates a detection that's waiting for
+      // update from the tracker.
+      auto waiting_for_update_detectoin_ptr =
+          waiting_for_update_detections_.find(tracked_box.id());
+      if (waiting_for_update_detectoin_ptr !=
+          waiting_for_update_detections_.end()) {
+        // Add the detection and remove duplicated detections.
+        auto removed_ids = tracked_detection_manager_.AddDetection(
+            std::move(waiting_for_update_detectoin_ptr->second));
         MoveIds(removed_detection_ids.get(), std::move(removed_ids));
+
+        waiting_for_update_detections_.erase(waiting_for_update_detectoin_ptr);
       }
-      // TODO: Should be handled automatically in detection manager.
-      auto removed_ids = tracked_detection_manager_.RemoveObsoleteDetections(
-          GetInputTimestampMs(cc) - kDetectionUpdateTimeOutMS);
+      auto removed_ids = tracked_detection_manager_.UpdateDetectionLocation(
+          tracked_box.id(), bounding_box, tracked_box.time_msec());
       MoveIds(removed_detection_ids.get(), std::move(removed_ids));
+    }
+    // TODO: Should be handled automatically in detection manager.
+    auto removed_ids = tracked_detection_manager_.RemoveObsoleteDetections(
+        GetInputTimestampMs(cc) - kDetectionUpdateTimeOutMS);
+    MoveIds(removed_detection_ids.get(), std::move(removed_ids));
 
-      // TODO: Should be handled automatically in detection manager.
-      removed_ids = tracked_detection_manager_.RemoveOutOfViewDetections();
-      MoveIds(removed_detection_ids.get(), std::move(removed_ids));
+    // TODO: Should be handled automatically in detection manager.
+    removed_ids = tracked_detection_manager_.RemoveOutOfViewDetections();
+    MoveIds(removed_detection_ids.get(), std::move(removed_ids));
 
-      if (!removed_detection_ids->empty() &&
-          cc->Outputs().HasTag(kCancelObjectIdTag)) {
-        auto timestamp = cc->InputTimestamp();
-        for (int box_id : *removed_detection_ids) {
-          // The timestamp is incremented (by 1 us) because currently the box
-          // tracker calculator only accepts one cancel object ID for any given
-          // timestamp.
-          cc->Outputs()
-              .Tag(kCancelObjectIdTag)
-              .AddPacket(mediapipe::MakePacket<int>(box_id).At(timestamp++));
-        }
-      }
-
-      // Output detections and corresponding bounding boxes.
-      const auto& all_detections =
-          tracked_detection_manager_.GetAllTrackedDetections();
-      auto output_detections = absl::make_unique<std::vector<Detection>>();
-      auto output_boxes = absl::make_unique<std::vector<NormalizedRect>>();
-
-      for (const auto& detection_ptr : all_detections) {
-        const auto& detection = *detection_ptr.second;
-        // Only output detections that are synced.
-        if (detection.last_updated_timestamp() <
-            cc->InputTimestamp().Microseconds() / 1000) {
-          continue;
-        }
-        output_detections->emplace_back(
-            GetAxisAlignedDetectionFromTrackedDetection(detection));
-        output_boxes->emplace_back(detection.bounding_box());
-      }
-      if (cc->Outputs().HasTag(kDetectionsTag)) {
+    if (!removed_detection_ids->empty() &&
+        cc->Outputs().HasTag(kCancelObjectIdTag)) {
+      auto timestamp = cc->InputTimestamp();
+      for (int box_id : *removed_detection_ids) {
+        // The timestamp is incremented (by 1 us) because currently the box
+        // tracker calculator only accepts one cancel object ID for any given
+        // timestamp.
         cc->Outputs()
-            .Tag(kDetectionsTag)
-            .Add(output_detections.release(), cc->InputTimestamp());
+            .Tag(kCancelObjectIdTag)
+            .AddPacket(mediapipe::MakePacket<int>(box_id).At(timestamp++));
       }
+    }
 
-      if (cc->Outputs().HasTag(kDetectionBoxesTag)) {
-        cc->Outputs()
-            .Tag(kDetectionBoxesTag)
-            .Add(output_boxes.release(), cc->InputTimestamp());
+    // Output detections and corresponding bounding boxes.
+    const auto& all_detections =
+        tracked_detection_manager_.GetAllTrackedDetections();
+    auto output_detections = absl::make_unique<std::vector<Detection>>();
+    auto output_boxes = absl::make_unique<std::vector<NormalizedRect>>();
+
+    for (const auto& detection_ptr : all_detections) {
+      const auto& detection = *detection_ptr.second;
+      // Only output detections that are synced.
+      if (detection.last_updated_timestamp() <
+          cc->InputTimestamp().Microseconds() / 1000) {
+        continue;
       }
+      output_detections->emplace_back(
+          GetAxisAlignedDetectionFromTrackedDetection(detection));
+      output_boxes->emplace_back(detection.bounding_box());
+    }
+    if (cc->Outputs().HasTag(kDetectionsTag)) {
+      cc->Outputs()
+          .Tag(kDetectionsTag)
+          .Add(output_detections.release(), cc->InputTimestamp());
+    }
+
+    if (cc->Outputs().HasTag(kDetectionBoxesTag)) {
+      cc->Outputs()
+          .Tag(kDetectionBoxesTag)
+          .Add(output_boxes.release(), cc->InputTimestamp());
     }
   }
 
@@ -298,7 +302,7 @@ REGISTER_CALCULATOR(TrackedDetectionManagerCalculator);
     AddDetectionList(detection_list, cc);
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 void TrackedDetectionManagerCalculator::AddDetectionList(

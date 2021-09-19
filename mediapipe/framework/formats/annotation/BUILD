@@ -18,9 +18,7 @@ load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
 
 package(default_visibility = ["//visibility:private"])
 
-licenses(["notice"])  # Apache 2.0
-
-exports_files(["LICENSE"])
+licenses(["notice"])
 
 mediapipe_proto_library(
     name = "locus_proto",

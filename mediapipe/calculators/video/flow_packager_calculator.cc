@@ -29,6 +29,13 @@
 
 namespace mediapipe {
 
+constexpr char kCacheDirTag[] = "CACHE_DIR";
+constexpr char kCompleteTag[] = "COMPLETE";
+constexpr char kTrackingChunkTag[] = "TRACKING_CHUNK";
+constexpr char kTrackingTag[] = "TRACKING";
+constexpr char kCameraTag[] = "CAMERA";
+constexpr char kFlowTag[] = "FLOW";
+
 using mediapipe::CameraMotion;
 using mediapipe::FlowPackager;
 using mediapipe::RegionFlowFeatureList;
@@ -59,11 +66,11 @@ class FlowPackagerCalculator : public CalculatorBase {
  public:
   ~FlowPackagerCalculator() override = default;
 
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
-  ::mediapipe::Status Close(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
+  absl::Status Close(CalculatorContext* cc) override;
 
   // Writes passed chunk to disk.
   void WriteChunk(const TrackingDataChunk& chunk) const;
@@ -90,57 +97,56 @@ class FlowPackagerCalculator : public CalculatorBase {
 
 REGISTER_CALCULATOR(FlowPackagerCalculator);
 
-::mediapipe::Status FlowPackagerCalculator::GetContract(
-    CalculatorContract* cc) {
-  if (!cc->Inputs().HasTag("FLOW")) {
+absl::Status FlowPackagerCalculator::GetContract(CalculatorContract* cc) {
+  if (!cc->Inputs().HasTag(kFlowTag)) {
     return tool::StatusFail("No input flow was specified.");
   }
 
-  cc->Inputs().Tag("FLOW").Set<RegionFlowFeatureList>();
+  cc->Inputs().Tag(kFlowTag).Set<RegionFlowFeatureList>();
 
-  if (cc->Inputs().HasTag("CAMERA")) {
-    cc->Inputs().Tag("CAMERA").Set<CameraMotion>();
+  if (cc->Inputs().HasTag(kCameraTag)) {
+    cc->Inputs().Tag(kCameraTag).Set<CameraMotion>();
   }
-  if (cc->Outputs().HasTag("TRACKING")) {
-    cc->Outputs().Tag("TRACKING").Set<TrackingData>();
+  if (cc->Outputs().HasTag(kTrackingTag)) {
+    cc->Outputs().Tag(kTrackingTag).Set<TrackingData>();
   }
-  if (cc->Outputs().HasTag("TRACKING_CHUNK")) {
-    cc->Outputs().Tag("TRACKING_CHUNK").Set<TrackingDataChunk>();
+  if (cc->Outputs().HasTag(kTrackingChunkTag)) {
+    cc->Outputs().Tag(kTrackingChunkTag).Set<TrackingDataChunk>();
   }
-  if (cc->Outputs().HasTag("COMPLETE")) {
-    cc->Outputs().Tag("COMPLETE").Set<bool>();
-  }
-
-  if (cc->InputSidePackets().HasTag("CACHE_DIR")) {
-    cc->InputSidePackets().Tag("CACHE_DIR").Set<std::string>();
+  if (cc->Outputs().HasTag(kCompleteTag)) {
+    cc->Outputs().Tag(kCompleteTag).Set<bool>();
   }
 
-  return ::mediapipe::OkStatus();
+  if (cc->InputSidePackets().HasTag(kCacheDirTag)) {
+    cc->InputSidePackets().Tag(kCacheDirTag).Set<std::string>();
+  }
+
+  return absl::OkStatus();
 }
 
-::mediapipe::Status FlowPackagerCalculator::Open(CalculatorContext* cc) {
+absl::Status FlowPackagerCalculator::Open(CalculatorContext* cc) {
   options_ = cc->Options<FlowPackagerCalculatorOptions>();
 
   flow_packager_.reset(new FlowPackager(options_.flow_packager_options()));
 
-  use_caching_ = cc->InputSidePackets().HasTag("CACHE_DIR");
-  build_chunk_ = use_caching_ || cc->Outputs().HasTag("TRACKING_CHUNK");
+  use_caching_ = cc->InputSidePackets().HasTag(kCacheDirTag);
+  build_chunk_ = use_caching_ || cc->Outputs().HasTag(kTrackingChunkTag);
   if (use_caching_) {
-    cache_dir_ = cc->InputSidePackets().Tag("CACHE_DIR").Get<std::string>();
+    cache_dir_ = cc->InputSidePackets().Tag(kCacheDirTag).Get<std::string>();
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status FlowPackagerCalculator::Process(CalculatorContext* cc) {
-  InputStream* flow_stream = &(cc->Inputs().Tag("FLOW"));
+absl::Status FlowPackagerCalculator::Process(CalculatorContext* cc) {
+  InputStream* flow_stream = &(cc->Inputs().Tag(kFlowTag));
   const RegionFlowFeatureList& flow = flow_stream->Get<RegionFlowFeatureList>();
 
   const Timestamp timestamp = flow_stream->Value().Timestamp();
 
   const CameraMotion* camera_motion = nullptr;
-  if (cc->Inputs().HasTag("CAMERA")) {
-    InputStream* camera_stream = &(cc->Inputs().Tag("CAMERA"));
+  if (cc->Inputs().HasTag(kCameraTag)) {
+    InputStream* camera_stream = &(cc->Inputs().Tag(kCameraTag));
     camera_motion = &camera_stream->Get<CameraMotion>();
   }
 
@@ -162,7 +168,7 @@ REGISTER_CALCULATOR(FlowPackagerCalculator);
     if (frame_idx_ > 0) {
       item->set_prev_timestamp_usec(prev_timestamp_.Value());
     }
-    if (cc->Outputs().HasTag("TRACKING")) {
+    if (cc->Outputs().HasTag(kTrackingTag)) {
       // Need to copy as output is requested.
       *item->mutable_tracking_data() = *tracking_data;
     } else {
@@ -173,9 +179,9 @@ REGISTER_CALCULATOR(FlowPackagerCalculator);
         options_.caching_chunk_size_msec() * (chunk_idx_ + 1);
 
     if (timestamp.Value() / 1000 >= next_chunk_msec) {
-      if (cc->Outputs().HasTag("TRACKING_CHUNK")) {
+      if (cc->Outputs().HasTag(kTrackingChunkTag)) {
         cc->Outputs()
-            .Tag("TRACKING_CHUNK")
+            .Tag(kTrackingChunkTag)
             .Add(new TrackingDataChunk(tracking_chunk_),
                  Timestamp(tracking_chunk_.item(0).timestamp_usec()));
       }
@@ -186,23 +192,23 @@ REGISTER_CALCULATOR(FlowPackagerCalculator);
     }
   }
 
-  if (cc->Outputs().HasTag("TRACKING")) {
+  if (cc->Outputs().HasTag(kTrackingTag)) {
     cc->Outputs()
-        .Tag("TRACKING")
+        .Tag(kTrackingTag)
         .Add(tracking_data.release(), flow_stream->Value().Timestamp());
   }
 
   prev_timestamp_ = timestamp;
   ++frame_idx_;
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status FlowPackagerCalculator::Close(CalculatorContext* cc) {
+absl::Status FlowPackagerCalculator::Close(CalculatorContext* cc) {
   if (frame_idx_ > 0) {
     tracking_chunk_.set_last_chunk(true);
-    if (cc->Outputs().HasTag("TRACKING_CHUNK")) {
+    if (cc->Outputs().HasTag(kTrackingChunkTag)) {
       cc->Outputs()
-          .Tag("TRACKING_CHUNK")
+          .Tag(kTrackingChunkTag)
           .Add(new TrackingDataChunk(tracking_chunk_),
                Timestamp(tracking_chunk_.item(0).timestamp_usec()));
     }
@@ -212,11 +218,11 @@ REGISTER_CALCULATOR(FlowPackagerCalculator);
     }
   }
 
-  if (cc->Outputs().HasTag("COMPLETE")) {
-    cc->Outputs().Tag("COMPLETE").Add(new bool(true), Timestamp::PreStream());
+  if (cc->Outputs().HasTag(kCompleteTag)) {
+    cc->Outputs().Tag(kCompleteTag).Add(new bool(true), Timestamp::PreStream());
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 void FlowPackagerCalculator::WriteChunk(const TrackingDataChunk& chunk) const {

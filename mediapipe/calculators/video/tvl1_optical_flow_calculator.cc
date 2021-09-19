@@ -23,6 +23,11 @@
 namespace mediapipe {
 namespace {
 
+constexpr char kBackwardFlowTag[] = "BACKWARD_FLOW";
+constexpr char kForwardFlowTag[] = "FORWARD_FLOW";
+constexpr char kSecondFrameTag[] = "SECOND_FRAME";
+constexpr char kFirstFrameTag[] = "FIRST_FRAME";
+
 // Checks that img1 and img2 have the same dimensions.
 bool ImageSizesMatch(const ImageFrame& img1, const ImageFrame& img2) {
   return (img1.Width() == img2.Width()) && (img1.Height() == img2.Height());
@@ -74,14 +79,14 @@ cv::Mat ConvertToGrayscale(const cv::Mat& image) {
 //   num_threads: 10
 class Tvl1OpticalFlowCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  static absl::Status GetContract(CalculatorContract* cc);
+  absl::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
 
  private:
-  ::mediapipe::Status CalculateOpticalFlow(const ImageFrame& current_frame,
-                                           const ImageFrame& next_frame,
-                                           OpticalFlowField* flow);
+  absl::Status CalculateOpticalFlow(const ImageFrame& current_frame,
+                                    const ImageFrame& next_frame,
+                                    OpticalFlowField* flow);
   bool forward_requested_ = false;
   bool backward_requested_ = false;
   // Stores the idle DenseOpticalFlow objects.
@@ -93,51 +98,50 @@ class Tvl1OpticalFlowCalculator : public CalculatorBase {
   absl::Mutex mutex_;
 };
 
-::mediapipe::Status Tvl1OpticalFlowCalculator::GetContract(
-    CalculatorContract* cc) {
-  if (!cc->Inputs().HasTag("FIRST_FRAME") ||
-      !cc->Inputs().HasTag("SECOND_FRAME")) {
-    return ::mediapipe::InvalidArgumentError(
+absl::Status Tvl1OpticalFlowCalculator::GetContract(CalculatorContract* cc) {
+  if (!cc->Inputs().HasTag(kFirstFrameTag) ||
+      !cc->Inputs().HasTag(kSecondFrameTag)) {
+    return absl::InvalidArgumentError(
         "Missing required input streams. Both FIRST_FRAME and SECOND_FRAME "
         "must be specified.");
   }
-  cc->Inputs().Tag("FIRST_FRAME").Set<ImageFrame>();
-  cc->Inputs().Tag("SECOND_FRAME").Set<ImageFrame>();
-  if (cc->Outputs().HasTag("FORWARD_FLOW")) {
-    cc->Outputs().Tag("FORWARD_FLOW").Set<OpticalFlowField>();
+  cc->Inputs().Tag(kFirstFrameTag).Set<ImageFrame>();
+  cc->Inputs().Tag(kSecondFrameTag).Set<ImageFrame>();
+  if (cc->Outputs().HasTag(kForwardFlowTag)) {
+    cc->Outputs().Tag(kForwardFlowTag).Set<OpticalFlowField>();
   }
-  if (cc->Outputs().HasTag("BACKWARD_FLOW")) {
-    cc->Outputs().Tag("BACKWARD_FLOW").Set<OpticalFlowField>();
+  if (cc->Outputs().HasTag(kBackwardFlowTag)) {
+    cc->Outputs().Tag(kBackwardFlowTag).Set<OpticalFlowField>();
   }
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status Tvl1OpticalFlowCalculator::Open(CalculatorContext* cc) {
+absl::Status Tvl1OpticalFlowCalculator::Open(CalculatorContext* cc) {
   {
     absl::MutexLock lock(&mutex_);
     tvl1_computers_.emplace_back(cv::createOptFlow_DualTVL1());
   }
-  if (cc->Outputs().HasTag("FORWARD_FLOW")) {
+  if (cc->Outputs().HasTag(kForwardFlowTag)) {
     forward_requested_ = true;
   }
-  if (cc->Outputs().HasTag("BACKWARD_FLOW")) {
+  if (cc->Outputs().HasTag(kBackwardFlowTag)) {
     backward_requested_ = true;
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status Tvl1OpticalFlowCalculator::Process(CalculatorContext* cc) {
+absl::Status Tvl1OpticalFlowCalculator::Process(CalculatorContext* cc) {
   const ImageFrame& first_frame =
-      cc->Inputs().Tag("FIRST_FRAME").Value().Get<ImageFrame>();
+      cc->Inputs().Tag(kFirstFrameTag).Value().Get<ImageFrame>();
   const ImageFrame& second_frame =
-      cc->Inputs().Tag("SECOND_FRAME").Value().Get<ImageFrame>();
+      cc->Inputs().Tag(kSecondFrameTag).Value().Get<ImageFrame>();
   if (forward_requested_) {
     auto forward_optical_flow_field = absl::make_unique<OpticalFlowField>();
     MP_RETURN_IF_ERROR(CalculateOpticalFlow(first_frame, second_frame,
                                             forward_optical_flow_field.get()));
     cc->Outputs()
-        .Tag("FORWARD_FLOW")
+        .Tag(kForwardFlowTag)
         .Add(forward_optical_flow_field.release(), cc->InputTimestamp());
   }
   if (backward_requested_) {
@@ -145,13 +149,13 @@ class Tvl1OpticalFlowCalculator : public CalculatorBase {
     MP_RETURN_IF_ERROR(CalculateOpticalFlow(second_frame, first_frame,
                                             backward_optical_flow_field.get()));
     cc->Outputs()
-        .Tag("BACKWARD_FLOW")
+        .Tag(kBackwardFlowTag)
         .Add(backward_optical_flow_field.release(), cc->InputTimestamp());
   }
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status Tvl1OpticalFlowCalculator::CalculateOpticalFlow(
+absl::Status Tvl1OpticalFlowCalculator::CalculateOpticalFlow(
     const ImageFrame& current_frame, const ImageFrame& next_frame,
     OpticalFlowField* flow) {
   CHECK(flow);
@@ -184,7 +188,7 @@ class Tvl1OpticalFlowCalculator : public CalculatorBase {
     absl::MutexLock lock(&mutex_);
     tvl1_computers_.push_back(tvl1_computer);
   }
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 REGISTER_CALCULATOR(Tvl1OpticalFlowCalculator);

@@ -29,7 +29,7 @@ constexpr float kWidthFieldOfView = 60;
 namespace mediapipe {
 namespace autoflip {
 
-::mediapipe::Status SceneCropper::ProcessKinematicPathSolver(
+absl::Status SceneCropper::ProcessKinematicPathSolver(
     const SceneKeyFrameCropSummary& scene_summary,
     const std::vector<int64>& scene_timestamps,
     const std::vector<bool>& is_key_frames,
@@ -77,10 +77,10 @@ namespace autoflip {
         -(x_path - scene_summary.crop_window_width() / 2);
     all_xforms->push_back(transform);
   }
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status SceneCropper::CropFrames(
+absl::Status SceneCropper::CropFrames(
     const SceneKeyFrameCropSummary& scene_summary,
     const std::vector<int64>& scene_timestamps,
     const std::vector<bool>& is_key_frames,
@@ -144,16 +144,14 @@ namespace autoflip {
   // renderer.
   for (int i = 0; i < num_scene_frames; i++) {
     const int left = -(scene_frame_xforms[i].at<float>(0, 2));
-    const int right = left + crop_width;
-    const int top = top_static_border_size;
-    const int bottom = frame_height_ - bottom_static_border_size;
-    crop_from_location->push_back(
-        cv::Rect(left, top, right - left, bottom - top));
+    const int top =
+        top_static_border_size - (scene_frame_xforms[i].at<float>(1, 2));
+    crop_from_location->push_back(cv::Rect(left, top, crop_width, crop_height));
   }
 
   // If no cropped_frames is passed in, return directly.
   if (!cropped_frames) {
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
   RET_CHECK(!scene_frames_or_empty.empty())
       << "If |cropped_frames| != nullptr, scene_frames_or_empty must not be "

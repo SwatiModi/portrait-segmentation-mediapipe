@@ -19,7 +19,7 @@ load(
     "mediapipe_binary_graph",
 )
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:private"])
 
@@ -316,6 +316,9 @@ cc_library(
         "//mediapipe/util/tracking",
         "//mediapipe/util/tracking:box_tracker",
         "//mediapipe/util/tracking:tracking_visualization_utilities",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/container:node_hash_map",
+        "@com_google_absl//absl/container:node_hash_set",
         "@com_google_absl//absl/strings",
     ],
     alwayslink = 1,
@@ -423,6 +426,7 @@ cc_test(
         "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:opencv_core",
         "//mediapipe/framework/port:parse_text_proto",
+        "@com_google_absl//absl/flags:flag",
     ],
 )
 
@@ -447,6 +451,7 @@ cc_test(
         "//mediapipe/framework/port:opencv_imgproc",
         "//mediapipe/framework/port:opencv_video",
         "//mediapipe/framework/port:parse_text_proto",
+        "@com_google_absl//absl/flags:flag",
     ],
 )
 
@@ -531,6 +536,7 @@ cc_test(
         "//mediapipe/framework/stream_handler:sync_set_input_stream_handler",
         "//mediapipe/util/tracking:box_tracker_cc_proto",
         "//mediapipe/util/tracking:tracking_cc_proto",
+        "@com_google_absl//absl/flags:flag",
     ],
 )
 

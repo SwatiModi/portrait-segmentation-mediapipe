@@ -12,15 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//mediapipe/examples:__subpackages__"])
+
+cc_binary(
+    name = "face_detection_full_range_cpu",
+    deps = [
+        "//mediapipe/examples/desktop:demo_run_graph_main",
+        "//mediapipe/graphs/face_detection:face_detection_full_range_desktop_live_deps",
+    ],
+)
 
 cc_binary(
     name = "face_detection_cpu",
     deps = [
         "//mediapipe/examples/desktop:demo_run_graph_main",
-        "//mediapipe/graphs/face_detection:desktop_tflite_calculators",
+        "//mediapipe/graphs/face_detection:desktop_live_calculators",
     ],
 )
 
@@ -29,6 +37,6 @@ cc_binary(
     name = "face_detection_gpu",
     deps = [
         "//mediapipe/examples/desktop:demo_run_graph_main_gpu",
-        "//mediapipe/graphs/face_detection:mobile_calculators",
+        "//mediapipe/graphs/face_detection:desktop_live_gpu_calculators",
     ],
 )

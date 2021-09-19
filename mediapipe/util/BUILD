@@ -12,63 +12,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+load("//mediapipe/framework/port:build_config.bzl", "mediapipe_proto_library")
+load("//mediapipe/framework:mediapipe_cc_test.bzl", "mediapipe_cc_test")
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:private"])
 
-load("//mediapipe/framework/port:build_config.bzl", "mediapipe_cc_proto_library")
-
-proto_library(
+mediapipe_proto_library(
     name = "audio_decoder_proto",
     srcs = ["audio_decoder.proto"],
     visibility = ["//visibility:public"],
     deps = [
+        "//mediapipe/framework:calculator_options_proto",
         "//mediapipe/framework:calculator_proto",
     ],
 )
 
-proto_library(
+mediapipe_proto_library(
     name = "color_proto",
     srcs = ["color.proto"],
     visibility = ["//visibility:public"],
 )
 
-proto_library(
+mediapipe_proto_library(
     name = "render_data_proto",
     srcs = ["render_data.proto"],
     visibility = ["//visibility:public"],
     deps = ["//mediapipe/util:color_proto"],
 )
 
-mediapipe_cc_proto_library(
-    name = "color_cc_proto",
-    srcs = ["color.proto"],
-    visibility = ["//visibility:public"],
-    deps = [":color_proto"],
-)
-
-mediapipe_cc_proto_library(
-    name = "render_data_cc_proto",
-    srcs = ["render_data.proto"],
-    cc_deps = [":color_cc_proto"],
-    visibility = ["//visibility:public"],
-    deps = [":render_data_proto"],
-)
-
-mediapipe_cc_proto_library(
-    name = "audio_decoder_cc_proto",
-    srcs = ["audio_decoder.proto"],
-    cc_deps = ["//mediapipe/framework:calculator_cc_proto"],
-    visibility = ["//visibility:public"],
-    deps = [":audio_decoder_proto"],
-)
-
 cc_library(
     name = "audio_decoder",
     srcs = ["audio_decoder.cc"],
     hdrs = ["audio_decoder.h"],
-    visibility = ["//mediapipe:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         ":audio_decoder_cc_proto",
         "//mediapipe/framework:packet",
@@ -76,7 +54,6 @@ cc_library(
         "//mediapipe/framework/deps:cleanup",
         "//mediapipe/framework/formats:matrix",
         "//mediapipe/framework/formats:time_series_header_cc_proto",
-        "//mediapipe/framework/port:commandlineflags",
         "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework/port:map_util",
         "//mediapipe/framework/port:ret_check",
@@ -84,9 +61,10 @@ cc_library(
         "//mediapipe/framework/tool:status_util",
         "//third_party:libffmpeg",
         "@com_google_absl//absl/base:endian",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
 )
 
@@ -94,14 +72,12 @@ cc_library(
     name = "cpu_util",
     srcs = ["cpu_util.cc"],
     hdrs = ["cpu_util.h"],
-    visibility = [
-        "//mediapipe/framework:mediapipe_internal",
-    ],
+    visibility = ["//visibility:public"],
     deps = [
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
         "//mediapipe/framework/port:integral_types",
-        "//mediapipe/framework:port",
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:statusor",
     ] + select({
@@ -116,9 +92,7 @@ cc_library(
     name = "header_util",
     srcs = ["header_util.cc"],
     hdrs = ["header_util.h"],
-    visibility = [
-        "//mediapipe/framework:mediapipe_internal",
-    ],
+    visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:packet_set",
@@ -131,9 +105,7 @@ cc_library(
     name = "image_frame_util",
     srcs = ["image_frame_util.cc"],
     hdrs = ["image_frame_util.h"],
-    visibility = [
-        "//visibility:public",
-    ],
+    visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework/deps:mathutil",
         "//mediapipe/framework/formats:image_format_cc_proto",
@@ -156,9 +128,7 @@ cc_library(
     name = "annotation_renderer",
     srcs = ["annotation_renderer.cc"],
     hdrs = ["annotation_renderer.h"],
-    visibility = [
-        "//visibility:public",
-    ],
+    visibility = ["//visibility:public"],
     deps = [
         ":render_data_cc_proto",
         "//mediapipe/framework/port:logging",
@@ -169,15 +139,31 @@ cc_library(
     ],
 )
 
+# Prefer to use ":resource_util", Customization of the resource util is being restricted
+# while we explore how it should best be implemented.
+cc_library(
+    name = "resource_util_custom",
+    hdrs = ["resource_util_custom.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/framework/port:status",
+    ],
+)
+
 cc_library(
     name = "resource_util",
-    srcs = select({
-        "//conditions:default": ["resource_util.cc"],
+    srcs = [
+        "resource_util.cc",
+        "resource_util_internal.h",
+    ] + select({
+        "//conditions:default": ["resource_util_default.cc"],
         "//mediapipe:android": ["resource_util_android.cc"],
         "//mediapipe:ios": ["resource_util_apple.cc"],
-        "//mediapipe:macos": ["resource_util.cc"],
+        "//mediapipe:macos": ["resource_util_default.cc"],
     }),
-    hdrs = ["resource_util.h"],
+    hdrs = [
+        "resource_util.h",
+    ],
     # We use Objective-C++ on iOS.
     copts = select({
         "//conditions:default": [],
@@ -186,17 +172,21 @@ cc_library(
         ],
         "//mediapipe:macos": [],
     }),
-    visibility = [
-        "//mediapipe/framework:mediapipe_internal",
-    ],
+    visibility = ["//visibility:public"],
     deps = [
+        ":resource_util_custom",
+        "@com_google_absl//absl/strings:str_format",
+        "//mediapipe/framework/deps:file_path",
+        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
+        "//mediapipe/framework/port:singleton",
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:statusor",
+        "//mediapipe/framework/port:file_helpers",
         "@com_google_absl//absl/strings",
     ] + select({
         "//conditions:default": [
-            "//mediapipe/framework/port:file_helpers",
+            "@com_google_absl//absl/flags:flag",
         ],
         "//mediapipe:android": [
             "//mediapipe/util/android:asset_manager_util",
@@ -204,9 +194,28 @@ cc_library(
         ],
         "//mediapipe:ios": [],
         "//mediapipe:macos": [
-            "//mediapipe/framework/port:file_helpers",
+            "@com_google_absl//absl/flags:flag",
         ],
     }),
+)
+
+cc_library(
+    name = "resource_cache",
+    hdrs = ["resource_cache.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/framework/port:logging",
+        "@com_google_absl//absl/functional:function_ref",
+    ],
+)
+
+cc_test(
+    name = "resource_cache_test",
+    srcs = ["resource_cache_test.cc"],
+    deps = [
+        ":resource_cache",
+        "//mediapipe/framework/port:gtest_main",
+    ],
 )
 
 cc_library(
@@ -217,9 +226,7 @@ cc_library(
         # Layering check doesn't play nicely with portable proto wrappers.
         "no_layering_check",
     ],
-    visibility = [
-        "//visibility:public",
-    ],
+    visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework/formats:detection_cc_proto",
         "//mediapipe/framework/formats:location",
@@ -241,9 +248,7 @@ cc_library(
     name = "time_series_util",
     srcs = ["time_series_util.cc"],
     hdrs = ["time_series_util.h"],
-    visibility = [
-        "//visibility:public",
-    ],
+    visibility = ["//visibility:public"],
     deps = [
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/formats:matrix",
@@ -259,9 +264,7 @@ cc_library(
     name = "time_series_test_util",
     testonly = 1,
     hdrs = ["time_series_test_util.h"],
-    visibility = [
-        "//visibility:public",
-    ],
+    visibility = ["//visibility:public"],
     deps = [
         ":time_series_util",
         "//mediapipe/framework:calculator_framework",
@@ -275,7 +278,7 @@ cc_library(
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/framework/port:status",
         "@com_google_absl//absl/strings",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
     ],
 )
 
@@ -289,6 +292,32 @@ cc_test(
         "//mediapipe/framework/deps:message_matchers",
         "//mediapipe/framework/formats:time_series_header_cc_proto",
         "//mediapipe/framework/port:gtest_main",
-        "@eigen_archive//:eigen",
+        "@eigen_archive//:eigen3",
+    ],
+)
+
+cc_library(
+    name = "packet_test_util",
+    testonly = 1,
+    hdrs = ["packet_test_util.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/framework:demangle",
+        "//mediapipe/framework:packet",
+        "//mediapipe/framework:timestamp",
+        "//mediapipe/framework/port:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "packet_test_util_test",
+    size = "small",
+    srcs = ["packet_test_util_test.cc"],
+    deps = [
+        ":packet_test_util",
+        "//mediapipe/framework:packet",
+        "//mediapipe/framework:port",
+        "//mediapipe/framework:timestamp",
+        "//mediapipe/framework/port:gtest_main",
     ],
 )

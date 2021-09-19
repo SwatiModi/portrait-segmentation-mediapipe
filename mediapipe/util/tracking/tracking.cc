@@ -1652,7 +1652,8 @@ bool MotionBox::GetVectorsAndWeights(
 
     vectors->push_back(&motion_vectors[k]);
 
-    auto is_close_to_test_vector = [test_vector](const Vector2_f v) -> bool {
+    auto is_close_to_test_vector = [test_vector,
+                                    kSqProximity](const Vector2_f v) -> bool {
       return (v - test_vector.pos).Norm2() < kSqProximity;
     };
 
@@ -1945,9 +1946,10 @@ void MotionBox::EstimateObjectMotion(
 
   // For any additional degrees of freedom, require a good set of inliers.
   if (num_continued_inliers < options_.object_similarity_min_contd_inliers()) {
-    VLOG_IF(2, options_.tracking_degrees() !=
-                   TrackStepOptions::TRACKING_DEGREE_TRANSLATION)
-        << "Falling back to translation!!!";
+    if (options_.tracking_degrees() !=
+        TrackStepOptions::TRACKING_DEGREE_TRANSLATION) {
+      VLOG(2) << "Falling back to translation!!!";
+    }
     VLOG(1) << "num_continued_inliers: " << num_continued_inliers << " < "
             << options_.object_similarity_min_contd_inliers()
             << ", fall back to translation";
@@ -2889,11 +2891,22 @@ void MotionBox::TrackStepImplDeNormalized(
                         &swapped_inliers, &motion_inliers, &kinetic_average);
 
   const int num_prev_inliers = curr_pos.inlier_ids_size();
+  int num_prev_inliers_not_actively_discarded = num_prev_inliers;
+  if (motion_frame.actively_discarded_tracked_ids != nullptr) {
+    num_prev_inliers_not_actively_discarded = std::count_if(
+        curr_pos.inlier_ids().begin(), curr_pos.inlier_ids().end(),
+        [&motion_frame](int id) {
+          return !motion_frame.actively_discarded_tracked_ids->contains(id);
+        });
+    motion_frame.actively_discarded_tracked_ids->clear();
+  }
   const int num_inliers = next_pos->inlier_ids_size();
   // Must be in [0, 1].
   const float continued_inlier_fraction =
-      num_prev_inliers == 0 ? 1.0f
-                            : continued_inliers * 1.0f / num_prev_inliers;
+      num_prev_inliers_not_actively_discarded == 0
+          ? 1.0f
+          : continued_inliers * 1.0f / num_prev_inliers_not_actively_discarded;
+
   // Within [0, M], where M is maximum number of features. Values of > 1
   // indicate significant number of inlieres were outliers in previous frame.
   const float swapped_inlier_fraction =
@@ -3287,6 +3300,7 @@ void InvertMotionVectorFrame(const MotionVectorFrame& input,
   output->aspect_ratio = input.aspect_ratio;
   output->motion_vectors.clear();
   output->motion_vectors.reserve(input.motion_vectors.size());
+  output->actively_discarded_tracked_ids = input.actively_discarded_tracked_ids;
 
   const float aspect_ratio = input.aspect_ratio;
   float domain_x = 1.0f;

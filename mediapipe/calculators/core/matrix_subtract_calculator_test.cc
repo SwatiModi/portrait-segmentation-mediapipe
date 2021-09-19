@@ -29,6 +29,9 @@
 namespace mediapipe {
 namespace {
 
+constexpr char kMinuendTag[] = "MINUEND";
+constexpr char kSubtrahendTag[] = "SUBTRAHEND";
+
 // A 3x4 Matrix of random integers in [0,1000).
 const char kMatrixText[] =
     "rows: 3\n"
@@ -64,13 +67,13 @@ const char kMatrixText2[] =
 
 TEST(MatrixSubtractCalculatorTest, WrongConfig) {
   CalculatorGraphConfig::Node node_config =
-      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
         calculator: "MatrixSubtractCalculator"
         input_stream: "input_matrix"
         input_side_packet: "SUBTRAHEND:side_matrix"
         input_side_packet: "MINUEND:side_matrix2"
         output_stream: "output_matrix"
-      )");
+      )pb");
   CalculatorRunner runner(node_config);
   auto status = runner.Run();
   EXPECT_THAT(
@@ -81,36 +84,36 @@ TEST(MatrixSubtractCalculatorTest, WrongConfig) {
 
 TEST(MatrixSubtractCalculatorTest, WrongConfig2) {
   CalculatorGraphConfig::Node node_config =
-      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
         calculator: "MatrixSubtractCalculator"
         input_side_packet: "SUBTRAHEND:side_matrix"
         input_stream: "SUBTRAHEND:side_matrix2"
         output_stream: "output_matrix"
-      )");
+      )pb");
   CalculatorRunner runner(node_config);
   auto status = runner.Run();
-  EXPECT_THAT(
-      status.message(),
-      testing::HasSubstr("specify exactly one minuend and one subtrahend."));
+  EXPECT_THAT(status.message(), testing::HasSubstr("must be connected"));
+  EXPECT_THAT(status.message(), testing::HasSubstr("not both"));
 }
 
 TEST(MatrixSubtractCalculatorTest, SubtractFromInput) {
   CalculatorGraphConfig::Node node_config =
-      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
         calculator: "MatrixSubtractCalculator"
         input_stream: "MINUEND:input_matrix"
         input_side_packet: "SUBTRAHEND:side_matrix"
         output_stream: "output_matrix"
-      )");
+      )pb");
   CalculatorRunner runner(node_config);
   Matrix* side_matrix = new Matrix();
   MatrixFromTextProto(kMatrixText, side_matrix);
-  runner.MutableSidePackets()->Tag("SUBTRAHEND") = Adopt(side_matrix);
+  runner.MutableSidePackets()->Tag(kSubtrahendTag) = Adopt(side_matrix);
 
   Matrix* input_matrix = new Matrix();
   MatrixFromTextProto(kMatrixText2, input_matrix);
-  runner.MutableInputs()->Tag("MINUEND").packets.push_back(
-      Adopt(input_matrix).At(Timestamp(0)));
+  runner.MutableInputs()
+      ->Tag(kMinuendTag)
+      .packets.push_back(Adopt(input_matrix).At(Timestamp(0)));
 
   MP_ASSERT_OK(runner.Run());
   EXPECT_EQ(1, runner.Outputs().Index(0).packets.size());
@@ -125,21 +128,21 @@ TEST(MatrixSubtractCalculatorTest, SubtractFromInput) {
 
 TEST(MatrixSubtractCalculatorTest, SubtractFromSideMatrix) {
   CalculatorGraphConfig::Node node_config =
-      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+      ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
         calculator: "MatrixSubtractCalculator"
         input_stream: "SUBTRAHEND:input_matrix"
         input_side_packet: "MINUEND:side_matrix"
         output_stream: "output_matrix"
-      )");
+      )pb");
   CalculatorRunner runner(node_config);
   Matrix* side_matrix = new Matrix();
   MatrixFromTextProto(kMatrixText, side_matrix);
-  runner.MutableSidePackets()->Tag("MINUEND") = Adopt(side_matrix);
+  runner.MutableSidePackets()->Tag(kMinuendTag) = Adopt(side_matrix);
 
   Matrix* input_matrix = new Matrix();
   MatrixFromTextProto(kMatrixText2, input_matrix);
   runner.MutableInputs()
-      ->Tag("SUBTRAHEND")
+      ->Tag(kSubtrahendTag)
       .packets.push_back(Adopt(input_matrix).At(Timestamp(0)));
 
   MP_ASSERT_OK(runner.Run());

@@ -23,39 +23,95 @@ std::unique_ptr<GlTextureBuffer> GlTextureBuffer::Wrap(
                                             deletion_callback);
 }
 
+std::unique_ptr<GlTextureBuffer> GlTextureBuffer::Wrap(
+    GLenum target, GLuint name, int width, int height, GpuBufferFormat format,
+    std::shared_ptr<GlContext> context, DeletionCallback deletion_callback) {
+  return absl::make_unique<GlTextureBuffer>(target, name, width, height, format,
+                                            deletion_callback, context);
+}
+
 std::unique_ptr<GlTextureBuffer> GlTextureBuffer::Create(int width, int height,
                                                          GpuBufferFormat format,
-                                                         const void* data) {
+                                                         const void* data,
+                                                         int alignment) {
   auto buf = absl::make_unique<GlTextureBuffer>(GL_TEXTURE_2D, 0, width, height,
                                                 format, nullptr);
-  if (!buf->CreateInternal(data)) {
+  if (!buf->CreateInternal(data, alignment)) {
     return nullptr;
   }
   return buf;
 }
 
+static inline int AlignedToPowerOf2(int value, int alignment) {
+  // alignment must be a power of 2
+  return ((value - 1) | (alignment - 1)) + 1;
+}
+
+std::unique_ptr<GlTextureBuffer> GlTextureBuffer::Create(
+    const ImageFrame& image_frame) {
+  int base_ws = image_frame.Width() * image_frame.NumberOfChannels() *
+                image_frame.ByteDepth();
+  int actual_ws = image_frame.WidthStep();
+  int alignment = 0;
+  std::unique_ptr<ImageFrame> temp;
+  const uint8* data = image_frame.PixelData();
+
+  // Let's see if the pixel data is tightly aligned to one of the alignments
+  // supported by OpenGL, preferring 4 if possible since it's the default.
+  if (actual_ws == AlignedToPowerOf2(base_ws, 4))
+    alignment = 4;
+  else if (actual_ws == AlignedToPowerOf2(base_ws, 1))
+    alignment = 1;
+  else if (actual_ws == AlignedToPowerOf2(base_ws, 2))
+    alignment = 2;
+  else if (actual_ws == AlignedToPowerOf2(base_ws, 8))
+    alignment = 8;
+
+  // If no GL-compatible alignment was found, we copy the data to a temporary
+  // buffer, aligned to 4. We do this using another ImageFrame purely for
+  // convenience.
+  if (!alignment) {
+    temp = std::make_unique<ImageFrame>();
+    temp->CopyFrom(image_frame, 4);
+    data = temp->PixelData();
+    alignment = 4;
+  }
+
+  return Create(image_frame.Width(), image_frame.Height(),
+                GpuBufferFormatForImageFormat(image_frame.Format()), data,
+                alignment);
+}
+
 GlTextureBuffer::GlTextureBuffer(GLenum target, GLuint name, int width,
                                  int height, GpuBufferFormat format,
-                                 DeletionCallback deletion_callback)
+                                 DeletionCallback deletion_callback,
+                                 std::shared_ptr<GlContext> producer_context)
     : name_(name),
       width_(width),
       height_(height),
       format_(format),
       target_(target),
-      deletion_callback_(deletion_callback) {}
+      deletion_callback_(deletion_callback),
+      producer_context_(producer_context) {}
 
-bool GlTextureBuffer::CreateInternal(const void* data) {
+bool GlTextureBuffer::CreateInternal(const void* data, int alignment) {
   auto context = GlContext::GetCurrent();
   if (!context) return false;
+
+  producer_context_ = context;  // Save creation GL context.
 
   glGenTextures(1, &name_);
   if (!name_) return false;
 
   glBindTexture(target_, name_);
-  GlTextureInfo info = GlTextureInfoForGpuBufferFormat(format_, 0);
+  GlTextureInfo info =
+      GlTextureInfoForGpuBufferFormat(format_, 0, context->GetGlVersion());
+
+  if (alignment != 4 && data) glPixelStorei(GL_UNPACK_ALIGNMENT, alignment);
 
   // See b/70294573 for details about this.
   if (info.gl_internal_format == GL_RGBA16F &&
+      context->GetGlVersion() != GlVersion::kGLES2 &&
       SymbolAvailable(&glTexStorage2D)) {
     CHECK(data == nullptr) << "unimplemented";
     glTexStorage2D(target_, 1, info.gl_internal_format, width_, height_);
@@ -63,6 +119,8 @@ bool GlTextureBuffer::CreateInternal(const void* data) {
     glTexImage2D(target_, 0 /* level */, info.gl_internal_format, width_,
                  height_, 0 /* border */, info.gl_format, info.gl_type, data);
   }
+
+  if (alignment != 4 && data) glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 
   glBindTexture(target_, 0);
 
@@ -106,6 +164,7 @@ void GlTextureBuffer::Updated(std::shared_ptr<GlSyncPoint> prod_token) {
   CHECK(!producer_sync_)
       << "Updated existing texture which had not been marked for reuse!";
   producer_sync_ = std::move(prod_token);
+  producer_context_ = producer_sync_->GetContext();
 }
 
 void GlTextureBuffer::DidRead(std::shared_ptr<GlSyncPoint> cons_token) {

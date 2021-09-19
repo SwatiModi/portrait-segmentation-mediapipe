@@ -43,7 +43,7 @@ namespace {
 class SimulationClockTest : public ::testing::Test {
  protected:
   void SetUpInFlightGraph() {
-    graph_config_ = ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+    graph_config_ = ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
       input_stream: "input_packets_0"
       node {
         calculator: 'FlowLimiterCalculator'
@@ -84,7 +84,7 @@ class SimulationClockTest : public ::testing::Test {
         output_stream: 'output_packets_0'
         output_stream: 'finish_indicator'
       }
-    )");
+    )pb");
   }
 
   // Initialize the test clock as a SimulationClock.
@@ -96,7 +96,7 @@ class SimulationClockTest : public ::testing::Test {
   }
 
   // Initialize the test clock as a RealClock.
-  void SetupRealClock() { clock_ = ::mediapipe::Clock::RealClock(); }
+  void SetupRealClock() { clock_ = mediapipe::Clock::RealClock(); }
 
   // Return the values of the timestamps of a vector of Packets.
   static std::vector<int64> TimestampValues(
@@ -119,7 +119,7 @@ class SimulationClockTest : public ::testing::Test {
   std::shared_ptr<SimulationClock> simulation_clock_;
   CalculatorGraphConfig graph_config_;
   CalculatorGraph graph_;
-  ::mediapipe::Clock* clock_;
+  mediapipe::Clock* clock_;
 };
 
 // Just directly calls SimulationClock::Sleep on several threads.
@@ -177,19 +177,19 @@ TEST_F(SimulationClockTest, DuplicateWakeTimes) {
 }
 
 // A Calculator::Process callback function.
-typedef std::function<::mediapipe::Status(const InputStreamShardSet&,
-                                          OutputStreamShardSet*)>
+typedef std::function<absl::Status(const InputStreamShardSet&,
+                                   OutputStreamShardSet*)>
     ProcessFunction;
 
 // A testing callback function that passes through all packets.
-::mediapipe::Status PassThrough(const InputStreamShardSet& inputs,
-                                OutputStreamShardSet* outputs) {
+absl::Status PassThrough(const InputStreamShardSet& inputs,
+                         OutputStreamShardSet* outputs) {
   for (int i = 0; i < inputs.NumEntries(); ++i) {
     if (!inputs.Index(i).Value().IsEmpty()) {
       outputs->Index(i).AddPacket(inputs.Index(i).Value());
     }
   }
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 // This test shows sim clock synchronizing a bunch of parallel tasks.
@@ -246,7 +246,7 @@ TEST_F(SimulationClockTest, InFlight) {
 // and SimulationClock.  With tsan, this test reveals a race condition unless
 // the SimulationClock destructor calls ThreadFinish to waits for all threads.
 TEST_F(SimulationClockTest, DestroyClock) {
-  auto graph_config = ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+  auto graph_config = ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
     node {
       calculator: "LambdaCalculator"
       input_side_packet: 'callback_0'
@@ -258,7 +258,7 @@ TEST_F(SimulationClockTest, DestroyClock) {
       input_stream: "input_1"
       output_stream: "output_1"
     }
-  )");
+  )pb");
 
   int input_count = 0;
   ProcessFunction wait_0 = [&](const InputStreamShardSet& inputs,
@@ -267,7 +267,7 @@ TEST_F(SimulationClockTest, DestroyClock) {
     if (++input_count < 4) {
       outputs->Index(0).AddPacket(
           MakePacket<uint64>(input_count).At(Timestamp(input_count)));
-      return ::mediapipe::OkStatus();
+      return absl::OkStatus();
     } else {
       return tool::StatusStop();
     }
@@ -279,7 +279,7 @@ TEST_F(SimulationClockTest, DestroyClock) {
   };
 
   std::vector<Packet> out_packets;
-  ::mediapipe::Status status;
+  absl::Status status;
   {
     CalculatorGraph graph;
     auto executor = std::make_shared<SimulationClockExecutor>(4);

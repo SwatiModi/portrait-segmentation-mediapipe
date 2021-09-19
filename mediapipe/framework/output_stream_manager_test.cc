@@ -58,13 +58,13 @@ class OutputStreamManagerTest : public ::testing::Test {
     output_stream_shard_.SetSpec(output_stream_manager_->Spec());
     output_stream_manager_->ResetShard(&output_stream_shard_);
 
-    std::shared_ptr<tool::TagMap> tag_map = tool::CreateTagMap(1).ValueOrDie();
-    mediapipe::StatusOr<std::unique_ptr<mediapipe::InputStreamHandler>>
+    std::shared_ptr<tool::TagMap> tag_map = tool::CreateTagMap(1).value();
+    absl::StatusOr<std::unique_ptr<mediapipe::InputStreamHandler>>
         status_or_handler = InputStreamHandlerRegistry::CreateByName(
             "DefaultInputStreamHandler", tag_map, /*cc_manager=*/nullptr,
             MediaPipeOptions(), /*calculator_run_in_parallel=*/false);
     ASSERT_TRUE(status_or_handler.ok());
-    input_stream_handler_ = std::move(status_or_handler.ValueOrDie());
+    input_stream_handler_ = std::move(status_or_handler.value());
     const CollectionItemId& id = tag_map->BeginId();
 
     MP_ASSERT_OK(input_stream_manager_.Initialize("a_test", &packet_type_,
@@ -85,9 +85,7 @@ class OutputStreamManagerTest : public ::testing::Test {
 
   void ScheduleNoOp(CalculatorContext* cc) {}
 
-  void RecordError(const ::mediapipe::Status& error) {
-    errors_.push_back(error);
-  }
+  void RecordError(const absl::Status& error) { errors_.push_back(error); }
 
   void ReportQueueNoOp(InputStreamManager* stream, bool* stream_was_full) {}
 
@@ -106,7 +104,7 @@ class OutputStreamManagerTest : public ::testing::Test {
   std::function<void()> headers_ready_callback_;
   std::function<void()> notification_callback_;
   std::function<void(CalculatorContext*)> schedule_callback_;
-  std::function<void(::mediapipe::Status)> error_callback_;
+  std::function<void(absl::Status)> error_callback_;
   InputStreamManager::QueueSizeCallback queue_full_callback_;
   InputStreamManager::QueueSizeCallback queue_not_full_callback_;
 
@@ -116,21 +114,19 @@ class OutputStreamManagerTest : public ::testing::Test {
   InputStreamManager input_stream_manager_;
 
   // Vector of errors encountered while using the stream.
-  std::vector<::mediapipe::Status> errors_;
+  std::vector<absl::Status> errors_;
 };
 
 TEST_F(OutputStreamManagerTest, Init) {}
 
 TEST_F(OutputStreamManagerTest, ComputeOutputTimestampBoundWithoutOffset) {
   Timestamp input_timestamp = Timestamp(0);
-  Timestamp stream_previous_timestamp_bound =
-      output_stream_manager_->NextTimestampBound();
   Timestamp output_bound = output_stream_manager_->ComputeOutputTimestampBound(
       output_stream_shard_, input_timestamp);
   // If the offset isn't enabled, the input timestamp and the output bound are
   // not related. Since the output stream shard is empty, the output bound is
-  // still equal to the previous timestamp bound of the stream.
-  EXPECT_EQ(stream_previous_timestamp_bound, output_bound);
+  // still Timestamp::Unset().
+  EXPECT_EQ(Timestamp::Unset(), output_bound);
 
   output_stream_shard_.AddPacket(
       MakePacket<std::string>("Packet 1").At(Timestamp(10)));
@@ -253,11 +249,10 @@ TEST_F(OutputStreamManagerTest, ComputeOutputTimestampBoundWithNegativeOffset) {
 TEST_F(OutputStreamManagerTest,
        ComputeOutputTimestampBoundWithoutOffsetAfterOpenNode) {
   Timestamp input_timestamp = Timestamp::Unstarted();
-  // If the OutputStreamShard is empty, the output_bound is
-  // Timestamp::PreStream().
+  // If the OutputStreamShard is empty, the output_bound is Timestamp::Unset().
   Timestamp output_bound = output_stream_manager_->ComputeOutputTimestampBound(
       output_stream_shard_, input_timestamp);
-  EXPECT_EQ(Timestamp::PreStream(), output_bound);
+  EXPECT_EQ(Timestamp::Unset(), output_bound);
 
   output_stream_shard_.AddPacket(
       MakePacket<std::string>("Packet 1").At(Timestamp(20)));
@@ -277,10 +272,10 @@ TEST_F(OutputStreamManagerTest,
   output_stream_shard_.SetOffset(0);
   Timestamp input_timestamp = Timestamp::Unstarted();
   // If the OutputStreamShard is empty, the output_bound is always
-  // Timestamp::PreStream() regardless of the offset.
+  // Timestamp::Unset() regardless of the offset.
   Timestamp output_bound = output_stream_manager_->ComputeOutputTimestampBound(
       output_stream_shard_, input_timestamp);
-  EXPECT_EQ(Timestamp::PreStream(), output_bound);
+  EXPECT_EQ(Timestamp::Unset(), output_bound);
 
   output_stream_shard_.AddPacket(
       MakePacket<std::string>("Packet 1").At(Timestamp(20)));
@@ -298,13 +293,11 @@ TEST_F(OutputStreamManagerTest,
 TEST_F(OutputStreamManagerTest,
        ComputeOutputTimestampBoundWithoutOffsetForPreStream) {
   Timestamp input_timestamp = Timestamp::PreStream();
-  Timestamp stream_previous_timestamp_bound =
-      output_stream_manager_->NextTimestampBound();
   // If the OutputStreamShard is empty, the output bound is equal to the
-  // previous timestamp bound of the stream.
+  // Timestamp::Unset().
   Timestamp output_bound = output_stream_manager_->ComputeOutputTimestampBound(
       output_stream_shard_, input_timestamp);
-  EXPECT_EQ(stream_previous_timestamp_bound, output_bound);
+  EXPECT_EQ(Timestamp::Unset(), output_bound);
 
   output_stream_shard_.AddPacket(
       MakePacket<std::string>("Packet 1").At(Timestamp(20)));
@@ -370,13 +363,10 @@ TEST_F(OutputStreamManagerTest, AddPacketUnset) {
   ASSERT_EQ(1, errors_.size());
   EXPECT_TRUE(output_stream_shard_.IsEmpty());
 
-  Timestamp stream_previous_timestamp_bound =
-      output_stream_manager_->NextTimestampBound();
   Timestamp output_bound = output_stream_manager_->ComputeOutputTimestampBound(
       output_stream_shard_, input_timestamp);
-  // The output bound is still equal to the previous timestamp bound of the
-  // stream.
-  EXPECT_EQ(stream_previous_timestamp_bound, output_bound);
+  // The output bound is still equal to Timestamp::Unset().
+  EXPECT_EQ(Timestamp::Unset(), output_bound);
 
   output_stream_manager_->PropagateUpdatesToMirrors(output_bound,
                                                     &output_stream_shard_);
@@ -394,13 +384,10 @@ TEST_F(OutputStreamManagerTest, AddPacketUnstarted) {
   ASSERT_EQ(1, errors_.size());
   EXPECT_TRUE(output_stream_shard_.IsEmpty());
 
-  Timestamp stream_previous_timestamp_bound =
-      output_stream_manager_->NextTimestampBound();
   Timestamp output_bound = output_stream_manager_->ComputeOutputTimestampBound(
       output_stream_shard_, input_timestamp);
-  // The output bound is still equal to the previous timestamp bound of the
-  // stream.
-  EXPECT_EQ(stream_previous_timestamp_bound, output_bound);
+  // The output bound is still equal to Timestamp::Unset().
+  EXPECT_EQ(Timestamp::Unset(), output_bound);
 
   output_stream_manager_->PropagateUpdatesToMirrors(output_bound,
                                                     &output_stream_shard_);
@@ -419,13 +406,10 @@ TEST_F(OutputStreamManagerTest, AddPacketOneOverPostStream) {
   ASSERT_EQ(1, errors_.size());
   EXPECT_TRUE(output_stream_shard_.IsEmpty());
 
-  Timestamp stream_previous_timestamp_bound =
-      output_stream_manager_->NextTimestampBound();
   Timestamp output_bound = output_stream_manager_->ComputeOutputTimestampBound(
       output_stream_shard_, input_timestamp);
-  // The output bound is still equal to the previous timestamp bound of the
-  // stream.
-  EXPECT_EQ(stream_previous_timestamp_bound, output_bound);
+  // The output bound is still equal to Timestamp::Unset().
+  EXPECT_EQ(Timestamp::Unset(), output_bound);
 
   output_stream_manager_->PropagateUpdatesToMirrors(output_bound,
                                                     &output_stream_shard_);
@@ -444,13 +428,10 @@ TEST_F(OutputStreamManagerTest, AddPacketdDone) {
   ASSERT_EQ(1, errors_.size());
   EXPECT_TRUE(output_stream_shard_.IsEmpty());
 
-  Timestamp stream_previous_timestamp_bound =
-      output_stream_manager_->NextTimestampBound();
   Timestamp output_bound = output_stream_manager_->ComputeOutputTimestampBound(
       output_stream_shard_, input_timestamp);
-  // The output bound is still equal to the previous timestamp bound of the
-  // stream.
-  EXPECT_EQ(stream_previous_timestamp_bound, output_bound);
+  // The output bound is still equal to Timestamp::Unset().
+  EXPECT_EQ(Timestamp::Unset(), output_bound);
 
   output_stream_manager_->PropagateUpdatesToMirrors(output_bound,
                                                     &output_stream_shard_);
