@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "Eigen/Core"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/node_hash_set.h"
 #include "absl/memory/memory.h"
 #include "mediapipe/framework/port/logging.h"
@@ -332,6 +333,15 @@ struct RegionFlowComputation::FrameTrackingData {
   // use -1 if no such track id exists. Only used for long feature tracks.
   std::vector<int> track_ids;
 
+  // Stores all the tracked ids that has been discarded actively in this frame.
+  // This information will be popluated via RegionFlowFeatureList, so that the
+  // downstreaming modules can receive it and use it to avoid misjudgement on
+  // tracking continuity.
+  // Discard reason:
+  // (1) A tracked feature has too long track, which might create drift.
+  // (2) A tracked feature in a highly densed area, which provides littel value.
+  std::vector<int> actively_discarded_tracked_ids;
+
   // 1:1 mapping w.r.t. features. Stores the original patch neighborhood when
   // the feature was extracted for the first time, that is for features with
   // assigned track_id (>= 0) the data refers to a neighborhood in an earlier
@@ -382,7 +392,7 @@ struct RegionFlowComputation::FrameTrackingData {
 
   void BuildPyramid(int levels, int window_size, bool with_derivative) {
     if (use_cv_tracking) {
-#if CV_MAJOR_VERSION == 3
+#if CV_MAJOR_VERSION >= 3
       // No-op if not called for opencv 3.0 (c interface computes
       // pyramids in place).
       // OpenCV changed how window size gets specified from our radius setting
@@ -548,7 +558,7 @@ struct RegionFlowComputation::LongTrackData {
     float motion_mag = 0;  // Smoothed average motion. -1 for unknown.
   };
 
-  std::unordered_map<int, TrackInfo> track_info;
+  absl::flat_hash_map<int, TrackInfo> track_info;
 };
 
 template <class T>
@@ -751,7 +761,7 @@ RegionFlowComputation::RegionFlowComputation(
 
   // Tracking algorithm dependent on cv support and flag.
   use_cv_tracking_ = options_.tracking_options().use_cv_tracking_algorithm();
-#if CV_MAJOR_VERSION != 3
+#if CV_MAJOR_VERSION < 3
   if (use_cv_tracking_) {
     LOG(WARNING) << "Compiled without OpenCV 3.0 but cv_tracking_algorithm "
                  << "was requested. Falling back to older algorithm";
@@ -1447,6 +1457,12 @@ void RegionFlowComputation::ComputeRegionFlow(
       feature_list->set_timestamp_usec(data1->timestamp_usec);
     }
   }
+  if (data1 != nullptr) {
+    *feature_list->mutable_actively_discarded_tracked_ids() = {
+        data1->actively_discarded_tracked_ids.begin(),
+        data1->actively_discarded_tracked_ids.end()};
+    data1->actively_discarded_tracked_ids.clear();
+  }
 
   feature_list->set_match_frame((to - from) * (invert_flow ? -1 : 1));
 }
@@ -2082,8 +2098,8 @@ void RegionFlowComputation::WideBaselineMatchFeatures(
     !defined(CV_WRAPPER_3X)
   LOG(FATAL) << "Supported on only with OpenCV 3.0. "
              << "Use bazel build flag : --define CV_WRAPPER=3X";
-#else  // (defined(__ANDROID__) || defined(__APPLE__) ||
-       // defined(__EMSCRIPTEN__)) && !defined(CV_WRAPPER_3X)
+#else   // (defined(__ANDROID__) || defined(__APPLE__) ||
+        // defined(__EMSCRIPTEN__)) && !defined(CV_WRAPPER_3X)
   results->clear();
 
   const auto& frame1 = from_data_ptr->frame;
@@ -2374,6 +2390,7 @@ void RegionFlowComputation::ExtractFeatures(
 
       if (data->frame_num - start_frame >= lower_max_track_length &&
           distribution(rand_gen) <= drop_permil) {
+        data->actively_discarded_tracked_ids.push_back(track_id);
         continue;
       }
 
@@ -2385,6 +2402,7 @@ void RegionFlowComputation::ExtractFeatures(
       // Value of 2 improves number of connected features.
       constexpr int kMaxFeaturesPerBin = 1;
       if (mask.at<uint8>(mask_y, mask_x) >= kMaxFeaturesPerBin) {
+        data->actively_discarded_tracked_ids.push_back(track_id);
         continue;
       }
 
@@ -2559,7 +2577,7 @@ void RegionFlowComputation::TrackFeatures(FrameTrackingData* from_data_ptr,
                          input_mean, gain_image_.get());
   }
 
-#if CV_MAJOR_VERSION == 3
+#if CV_MAJOR_VERSION >= 3
   // OpenCV changed how window size gets specified from our radius setting
   // < 2.2 to diameter in 2.2+.
   const cv::Size cv_window_size(track_win_size * 2 + 1, track_win_size * 2 + 1);
@@ -2581,7 +2599,7 @@ void RegionFlowComputation::TrackFeatures(FrameTrackingData* from_data_ptr,
   feature_track_error_.resize(num_features);
   feature_status_.resize(num_features);
   if (use_cv_tracking_) {
-#if CV_MAJOR_VERSION == 3
+#if CV_MAJOR_VERSION >= 3
     if (gain_correction) {
       if (!frame1_gain_reference) {
         input_frame1 = cv::_InputArray(*gain_image_);
@@ -2770,7 +2788,7 @@ void RegionFlowComputation::TrackFeatures(FrameTrackingData* from_data_ptr,
     feature_status_.resize(num_to_verify);
 
     if (use_cv_tracking_) {
-#if CV_MAJOR_VERSION == 3
+#if CV_MAJOR_VERSION >= 3
       cv::calcOpticalFlowPyrLK(input_frame2, input_frame1, verify_features,
                                verify_features_tracked, feature_status_,
                                verify_track_error, cv_window_size,

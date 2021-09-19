@@ -1,8 +1,9 @@
 ---
 layout: default
 title: Hello World! on iOS
-parent: Getting Started
-nav_order: 4
+parent: MediaPipe on iOS
+grand_parent: Getting Started
+nav_order: 1
 ---
 
 # Hello World! on iOS
@@ -18,8 +19,8 @@ This codelab uses MediaPipe on an iOS device.
 
 ### What you will learn
 
-How to develop an iOS application that uses MediaPipe and run a MediaPipe
-graph on iOS.
+How to develop an iOS application that uses MediaPipe and run a MediaPipe graph
+on iOS.
 
 ### What you will build
 
@@ -30,8 +31,8 @@ stream on an iOS device.
 
 ## Setup
 
-1.  Install MediaPipe on your system, see [MediaPipe installation guide] for
-    details.
+1.  Install MediaPipe on your system, see
+    [MediaPipe installation guide](./install.md) for details.
 2.  Setup your iOS device for development.
 3.  Setup [Bazel] on your system to build and deploy the iOS app.
 
@@ -42,8 +43,8 @@ We will be using the following graph, [`edge_detection_mobile_gpu.pbtxt`]:
 ```
 # MediaPipe graph that performs GPU Sobel edge detection on a live video stream.
 # Used in the examples
-# mediapipe/examples/android/src/java/com/mediapipe/apps/edgedetectiongpu.
-# mediapipe/examples/ios/edgedetectiongpu.
+# mediapipe/examples/android/src/java/com/google/mediapipe/apps/basic:helloworld
+# and mediapipe/examples/ios/helloworld.
 
 # Images coming into and out of the graph.
 input_stream: "input_video"
@@ -56,7 +57,7 @@ node: {
   output_stream: "luma_video"
 }
 
-# Applies the Sobel filter to luminance images sotred in RGB format.
+# Applies the Sobel filter to luminance images stored in RGB format.
 node: {
   calculator: "SobelEdgesCalculator"
   input_stream: "luma_video"
@@ -89,21 +90,21 @@ to build it.
 
 First, create an XCode project via File > New > Single View App.
 
-Set the product name to "EdgeDetectionGpu", and use an appropriate organization
+Set the product name to "HelloWorld", and use an appropriate organization
 identifier, such as `com.google.mediapipe`. The organization identifier
 alongwith the product name will be the `bundle_id` for the application, such as
-`com.google.mediapipe.EdgeDetectionGpu`.
+`com.google.mediapipe.HelloWorld`.
 
 Set the language to Objective-C.
 
 Save the project to an appropriate location. Let's call this
 `$PROJECT_TEMPLATE_LOC`. So your project will be in the
-`$PROJECT_TEMPLATE_LOC/EdgeDetectionGpu` directory. This directory will contain
-another directory named `EdgeDetectionGpu` and an `EdgeDetectionGpu.xcodeproj` file.
+`$PROJECT_TEMPLATE_LOC/HelloWorld` directory. This directory will contain
+another directory named `HelloWorld` and an `HelloWorld.xcodeproj` file.
 
-The `EdgeDetectionGpu.xcodeproj` will not be useful for this tutorial, as we will
-use bazel to build the iOS application. The content of the
-`$PROJECT_TEMPLATE_LOC/EdgeDetectionGpu/EdgeDetectionGpu` directory is listed below:
+The `HelloWorld.xcodeproj` will not be useful for this tutorial, as we will use
+bazel to build the iOS application. The content of the
+`$PROJECT_TEMPLATE_LOC/HelloWorld/HelloWorld` directory is listed below:
 
 1.  `AppDelegate.h` and `AppDelegate.m`
 2.  `ViewController.h` and `ViewController.m`
@@ -112,10 +113,14 @@ use bazel to build the iOS application. The content of the
 5.  `Main.storyboard` and `Launch.storyboard`
 6.  `Assets.xcassets` directory.
 
-Copy these files to a directory named `EdgeDetectionGpu` to a location that can
-access the MediaPipe source code. For example, the source code of the
-application that we will build in this tutorial is located in
-`mediapipe/examples/ios/EdgeDetectionGpu`. We will refer to this path as the
+Note: In newer versions of Xcode, you may see additional files `SceneDelegate.h`
+and `SceneDelegate.m`. Make sure to copy them too and add them to the `BUILD`
+file mentioned below.
+
+Copy these files to a directory named `HelloWorld` to a location that can access
+the MediaPipe source code. For example, the source code of the application that
+we will build in this tutorial is located in
+`mediapipe/examples/ios/HelloWorld`. We will refer to this path as the
 `$APPLICATION_PATH` throughout the codelab.
 
 Note: MediaPipe provides Objective-C bindings for iOS. The edge detection
@@ -134,8 +139,8 @@ load(
 )
 
 ios_application(
-    name = "EdgeDetectionGpuApp",
-    bundle_id = "com.google.mediapipe.EdgeDetectionGpu",
+    name = "HelloWorldApp",
+    bundle_id = "com.google.mediapipe.HelloWorld",
     families = [
         "iphone",
         "ipad",
@@ -143,11 +148,11 @@ ios_application(
     infoplists = ["Info.plist"],
     minimum_os_version = MIN_IOS_VERSION,
     provisioning_profile = "//mediapipe/examples/ios:developer_provisioning_profile",
-    deps = [":EdgeDetectionGpuAppLibrary"],
+    deps = [":HelloWorldAppLibrary"],
 )
 
 objc_library(
-    name = "EdgeDetectionGpuAppLibrary",
+    name = "HelloWorldAppLibrary",
     srcs = [
         "AppDelegate.m",
         "ViewController.m",
@@ -172,9 +177,8 @@ The `objc_library` rule adds dependencies for the `AppDelegate` and
 `ViewController` classes, `main.m` and the application storyboards. The
 templated app depends only on the `UIKit` SDK.
 
-The `ios_application` rule uses the `EdgeDetectionGpuAppLibrary` Objective-C
-library generated to build an iOS application for installation on your iOS
-device.
+The `ios_application` rule uses the `HelloWorldAppLibrary` Objective-C library
+generated to build an iOS application for installation on your iOS device.
 
 Note: You need to point to your own iOS developer provisioning profile to be
 able to run the application on your iOS device.
@@ -182,21 +186,19 @@ able to run the application on your iOS device.
 To build the app, use the following command in a terminal:
 
 ```
-bazel build -c opt --config=ios_arm64 <$APPLICATION_PATH>:EdgeDetectionGpuApp'
+bazel build -c opt --config=ios_arm64 <$APPLICATION_PATH>:HelloWorldApp'
 ```
 
-For example, to build the `EdgeDetectionGpuApp` application in
-`mediapipe/examples/ios/edgedetectiongpu`, use the following
-command:
+For example, to build the `HelloWorldApp` application in
+`mediapipe/examples/ios/helloworld`, use the following command:
 
 ```
-bazel build -c opt --config=ios_arm64 mediapipe/examples/ios/edgedetectiongpu:EdgeDetectionGpuApp
+bazel build -c opt --config=ios_arm64 mediapipe/examples/ios/helloworld:HelloWorldApp
 ```
 
 Then, go back to XCode, open Window > Devices and Simulators, select your
 device, and add the `.ipa` file generated by the command above to your device.
-Here is the document on [setting up and compiling](./building_examples.md#ios) iOS
-MediaPipe apps.
+Here is the document on [setting up and compiling](./ios.md) iOS MediaPipe apps.
 
 Open the application on your device. Since it is empty, it should display a
 blank white screen.
@@ -249,6 +251,12 @@ We need to get frames from the `_cameraSource` into our application
 `MPPInputSourceDelegate`. So our application `ViewController` can be a delegate
 of `_cameraSource`.
 
+Update the interface definition of `ViewController` accordingly:
+
+```
+@interface ViewController () <MPPInputSourceDelegate>
+```
+
 To handle camera setup and process incoming frames, we should use a queue
 different from the main queue. Add the following to the implementation block of
 the `ViewController`:
@@ -289,6 +297,12 @@ first set up a way to display the camera frames. MediaPipe provides another
 utility called `MPPLayerRenderer` to display images on the screen. This utility
 can be used to display `CVPixelBufferRef` objects, which is the type of the
 images provided by `MPPCameraInputSource` to its delegates.
+
+In `ViewController.m`, add the following import line:
+
+```
+#import "mediapipe/objc/MPPLayerRenderer.h"
+```
 
 To display images of the screen, we need to add a new `UIView` object called
 `_liveView` to the `ViewController`.
@@ -413,6 +427,12 @@ Objective-C++.
 
 ### Use the graph in `ViewController`
 
+In `ViewController.m`, add the following import line:
+
+```
+#import "mediapipe/objc/MPPGraph.h"
+```
+
 Declare a static constant with the name of the graph, the input stream and the
 output stream:
 
@@ -494,6 +514,9 @@ in our app:
     if (![self.mediapipeGraph startWithError:&error]) {
       NSLog(@"Failed to start graph: %@", error);
     }
+    else if (![self.mediapipeGraph waitUntilIdleWithError:&error]) {
+      NSLog(@"Failed to complete graph initial run: %@", error);
+    }
 
     dispatch_async(_videoQueue, ^{
       [_cameraSource start];
@@ -502,8 +525,9 @@ in our app:
 }];
 ```
 
-Note: It is important to start the graph before starting the camera, so that
-the graph is ready to process frames as soon as the camera starts sending them.
+Note: It is important to start the graph before starting the camera and wait
+until completion, so that the graph is ready to process frames as soon as the
+camera starts sending them.
 
 Earlier, when we received frames from the camera in the `processVideoFrame`
 function, we displayed them in the `_liveView` using the `_renderer`. Now, we
@@ -547,14 +571,22 @@ method to receive packets on this output stream and display them on the screen:
 }
 ```
 
+Update the interface definition of `ViewController` with `MPPGraphDelegate`:
+
+```
+@interface ViewController () <MPPGraphDelegate, MPPInputSourceDelegate>
+```
+
 And that is all! Build and run the app on your iOS device. You should see the
 results of running the edge detection graph on a live video feed. Congrats!
 
 ![edge_detection_ios_gpu_gif](../images/mobile/edge_detection_ios_gpu.gif)
 
-If you ran into any issues, please see the full code of the tutorial
-[here](https://github.com/google/mediapipe/tree/master/mediapipe/examples/ios/edgedetectiongpu).
+Please note that the iOS examples now use a [common] template app. The code in
+this tutorial is used in the [common] template app. The [helloworld] app has the
+appropriate `BUILD` file dependencies for the edge detection graph.
 
 [Bazel]:https://bazel.build/
-[`edge_detection_mobile_gpu.pbtxt`]:https://github.com/google/mediapipe/tree/master/mediapipe/graphs/object_detection/object_detection_mobile_gpu.pbtxt
-[MediaPipe installation guide]:./install.md
+[`edge_detection_mobile_gpu.pbtxt`]:https://github.com/google/mediapipe/tree/master/mediapipe/graphs/edge_detection/edge_detection_mobile_gpu.pbtxt
+[common]:https://github.com/google/mediapipe/tree/master/mediapipe/examples/ios/common
+[helloworld]:https://github.com/google/mediapipe/tree/master/mediapipe/examples/ios/helloworld

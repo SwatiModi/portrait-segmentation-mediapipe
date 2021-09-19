@@ -34,20 +34,19 @@ constexpr char kMatrix[] = "MATRIX";
 constexpr char kTensor[] = "TENSOR";
 constexpr char kReference[] = "REFERENCE";
 
-::mediapipe::Status FillTimeSeriesHeaderIfValid(const Packet& header_packet,
-                                                TimeSeriesHeader* header) {
+absl::Status FillTimeSeriesHeaderIfValid(const Packet& header_packet,
+                                         TimeSeriesHeader* header) {
   CHECK(header);
   if (header_packet.IsEmpty()) {
-    return ::mediapipe::UnknownError("No header found.");
+    return absl::UnknownError("No header found.");
   }
   if (!header_packet.ValidateAsType<TimeSeriesHeader>().ok()) {
-    return ::mediapipe::UnknownError(
-        "Packet does not contain TimeSeriesHeader.");
+    return absl::UnknownError("Packet does not contain TimeSeriesHeader.");
   }
   *header = header_packet.Get<TimeSeriesHeader>();
   if (header->has_sample_rate() && header->sample_rate() >= 0 &&
       header->has_num_channels() && header->num_channels() >= 0) {
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   } else {
     std::string error_message =
         "TimeSeriesHeader is missing necessary fields: "
@@ -56,7 +55,7 @@ constexpr char kReference[] = "REFERENCE";
     absl::StrAppend(&error_message, "Got header:\n",
                     header->ShortDebugString());
 #endif
-    return ::mediapipe::InvalidArgumentError(error_message);
+    return absl::InvalidArgumentError(error_message);
   }
 }
 
@@ -92,8 +91,6 @@ constexpr char kReference[] = "REFERENCE";
 // the input data when it arrives in Process(). In particular, if the header
 // states that we produce a 1xD column vector, the input tensor must also be 1xD
 //
-// This designed was discussed in http://g/speakeranalysis/4uyx7cNRwJY and
-// http://g/daredevil-project/VB26tcseUy8.
 // Example Config
 // node: {
 //   calculator: "TensorToMatrixCalculator"
@@ -110,18 +107,17 @@ constexpr char kReference[] = "REFERENCE";
 // }
 class TensorToMatrixCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
 
   // Store header information so that we can verify the inputs in process().
   TimeSeriesHeader header_;
 };
 REGISTER_CALCULATOR(TensorToMatrixCalculator);
 
-::mediapipe::Status TensorToMatrixCalculator::GetContract(
-    CalculatorContract* cc) {
+absl::Status TensorToMatrixCalculator::GetContract(CalculatorContract* cc) {
   RET_CHECK_LE(cc->Inputs().NumEntries(), 2)
       << "Only one or two input streams are supported.";
   RET_CHECK_GT(cc->Inputs().NumEntries(), 0)
@@ -147,12 +143,12 @@ REGISTER_CALCULATOR(TensorToMatrixCalculator);
   cc->Outputs().Tag(kMatrix).Set<Matrix>(
       // Output Matrix.
   );
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TensorToMatrixCalculator::Open(CalculatorContext* cc) {
+absl::Status TensorToMatrixCalculator::Open(CalculatorContext* cc) {
   auto input_header = absl::make_unique<TimeSeriesHeader>();
-  ::mediapipe::Status header_status;
+  absl::Status header_status;
   if (cc->Inputs().HasTag(kReference)) {
     header_status = FillTimeSeriesHeaderIfValid(
         cc->Inputs().Tag(kReference).Header(), input_header.get());
@@ -160,22 +156,17 @@ REGISTER_CALCULATOR(TensorToMatrixCalculator);
   if (header_status.ok()) {
     if (cc->Options<TensorToMatrixCalculatorOptions>()
             .has_time_series_header_overrides()) {
-      // From design discussions with Daredevil, we only want to support single
-      // sample per packet for now, so we hardcode the sample_rate based on the
-      // packet_rate of the REFERENCE and fail noisily if we cannot. An
-      // alternative would be to calculate the sample_rate from the reference
-      // sample_rate and the change in num_samples between the reference and
-      // override headers:
-      // sample_rate_output = sample_rate_reference /
-      //                      (num_samples_override / num_samples_reference)
+      // This only supports a single sample per packet for now, so we hardcode
+      // the sample_rate based on the packet_rate of the REFERENCE and fail
+      // if we cannot.
       const TimeSeriesHeader& override_header =
           cc->Options<TensorToMatrixCalculatorOptions>()
               .time_series_header_overrides();
       input_header->MergeFrom(override_header);
-      CHECK(input_header->has_packet_rate())
+      RET_CHECK(input_header->has_packet_rate())
           << "The TimeSeriesHeader.packet_rate must be set.";
       if (!override_header.has_sample_rate()) {
-        CHECK_EQ(input_header->num_samples(), 1)
+        RET_CHECK_EQ(input_header->num_samples(), 1)
             << "Currently the time series can only output single samples.";
         input_header->set_sample_rate(input_header->packet_rate());
       }
@@ -184,24 +175,20 @@ REGISTER_CALCULATOR(TensorToMatrixCalculator);
     cc->Outputs().Tag(kMatrix).SetHeader(Adopt(input_header.release()));
   }
   cc->SetOffset(TimestampDiff(0));
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TensorToMatrixCalculator::Process(CalculatorContext* cc) {
-  // Daredevil requested CHECK for noisy failures rather than quieter RET_CHECK
-  // failures. These are absolute conditions of the graph for the graph to be
-  // valid, and if it is violated by any input anywhere, the graph will be
-  // invalid for all inputs. A hard CHECK will enable faster debugging by
-  // immediately exiting and more prominently displaying error messages.
-  // Do not replace with RET_CHECKs.
-
+absl::Status TensorToMatrixCalculator::Process(CalculatorContext* cc) {
   // Verify that each reference stream packet corresponds to a tensor packet
   // otherwise the header information is invalid. If we don't have a reference
   // stream, Process() is only called when we have an input tensor and this is
   // always True.
-  CHECK(cc->Inputs().HasTag(kTensor))
+  RET_CHECK(cc->Inputs().HasTag(kTensor))
       << "Tensor stream not available at same timestamp as the reference "
          "stream.";
+  RET_CHECK(!cc->Inputs().Tag(kTensor).IsEmpty()) << "Tensor stream is empty.";
+  RET_CHECK_OK(cc->Inputs().Tag(kTensor).Value().ValidateAsType<tf::Tensor>())
+      << "Tensor stream packet does not contain a Tensor.";
 
   const tf::Tensor& input_tensor = cc->Inputs().Tag(kTensor).Get<tf::Tensor>();
   CHECK(1 == input_tensor.dims() || 2 == input_tensor.dims())
@@ -209,19 +196,18 @@ REGISTER_CALCULATOR(TensorToMatrixCalculator);
   const int32 length = input_tensor.dim_size(input_tensor.dims() - 1);
   const int32 width = (1 == input_tensor.dims()) ? 1 : input_tensor.dim_size(0);
   if (header_.has_num_channels()) {
-    CHECK_EQ(length, header_.num_channels())
+    RET_CHECK_EQ(length, header_.num_channels())
         << "The number of channels at runtime does not match the header.";
   }
   if (header_.has_num_samples()) {
-    CHECK_EQ(width, header_.num_samples())
+    RET_CHECK_EQ(width, header_.num_samples())
         << "The number of samples at runtime does not match the header.";
-    ;
   }
   auto output = absl::make_unique<Matrix>(width, length);
   *output =
       Eigen::MatrixXf::Map(input_tensor.flat<float>().data(), length, width);
   cc->Outputs().Tag(kMatrix).Add(output.release(), cc->InputTimestamp());
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace mediapipe

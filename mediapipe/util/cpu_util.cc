@@ -26,6 +26,7 @@
 #include <fstream>
 
 #include "absl/algorithm/container.h"
+#include "absl/flags/flag.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/substitute.h"
@@ -33,23 +34,33 @@
 #include "mediapipe/framework/port/integral_types.h"
 #include "mediapipe/framework/port/statusor.h"
 
+ABSL_FLAG(std::string, system_cpu_max_freq_file,
+          "/sys/devices/system/cpu/cpu$0/cpufreq/cpuinfo_max_freq",
+          "The file pattern for CPU max frequencies, where $0 will be replaced "
+          "with the CPU id.");
+
 namespace mediapipe {
 namespace {
 
 constexpr uint32 kBufferLength = 64;
 
-::mediapipe::StatusOr<std::string> GetFilePath(int cpu) {
-  return absl::Substitute(
-      "/sys/devices/system/cpu/cpu$0/cpufreq/cpuinfo_max_freq", cpu);
+absl::StatusOr<std::string> GetFilePath(int cpu) {
+  if (absl::GetFlag(FLAGS_system_cpu_max_freq_file).find("$0") ==
+      std::string::npos) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Invalid frequency file: ",
+                     absl::GetFlag(FLAGS_system_cpu_max_freq_file)));
+  }
+  return absl::Substitute(absl::GetFlag(FLAGS_system_cpu_max_freq_file), cpu);
 }
 
-::mediapipe::StatusOr<uint64> GetCpuMaxFrequency(int cpu) {
+absl::StatusOr<uint64> GetCpuMaxFrequency(int cpu) {
   auto path_or_status = GetFilePath(cpu);
   if (!path_or_status.ok()) {
     return path_or_status.status();
   }
   std::ifstream file;
-  file.open(path_or_status.ValueOrDie());
+  file.open(path_or_status.value());
   if (file.is_open()) {
     char buffer[kBufferLength];
     file.getline(buffer, kBufferLength);
@@ -58,12 +69,12 @@ constexpr uint32 kBufferLength = 64;
     if (absl::SimpleAtoi(buffer, &frequency)) {
       return frequency;
     } else {
-      return mediapipe::InvalidArgumentError(
+      return absl::InvalidArgumentError(
           absl::StrCat("Invalid frequency: ", buffer));
     }
   } else {
-    return mediapipe::NotFoundError(
-        absl::StrCat("Couldn't read ", path_or_status.ValueOrDie()));
+    return absl::NotFoundError(
+        absl::StrCat("Couldn't read ", path_or_status.value()));
   }
 }
 
@@ -72,7 +83,7 @@ std::set<int> InferLowerOrHigherCoreIds(bool lower) {
   for (int cpu = 0; cpu < NumCPUCores(); ++cpu) {
     auto freq_or_status = GetCpuMaxFrequency(cpu);
     if (freq_or_status.ok()) {
-      cpu_freq_pairs.push_back({cpu, freq_or_status.ValueOrDie()});
+      cpu_freq_pairs.push_back({cpu, freq_or_status.value()});
     }
   }
   if (cpu_freq_pairs.empty()) {

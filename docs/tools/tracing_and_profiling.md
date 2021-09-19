@@ -26,20 +26,22 @@ To enable tracing and profiling of a mediapipe graph:
    1. The profiling library must be linked to the framework.
    2. Tracing and profiling must be enabled in the graph configuration.
 
-The profiling library is linked to the framework by default.  If needed,
-the profiling library can be omitted from the framework using the bazel
-command line option: `--define MEDIAPIPE_PROFILING=0`.
+The profiling library is linked to the framework by default for Desktop.
+If needed, it can be omitted from the framework using the bazel command line
+option: `--define MEDIAPIPE_PROFILING=0`.  For other platforms, you can use the
+bazel command line option `--define MEDIAPIPE_PROFILING=1` to link it.
 
 To enable tracing and profiling, the `CalculatorGraphConfig` (in
 [calculator.proto](https://github.com/google/mediapipe/tree/master/mediapipe/framework/calculator.proto))
 representing the graph must have a `profiler_config` message at its root. Here
-is a simple setup that turns on a few extra options:
+is a simple setup that turns on tracing and keeps 100 seconds of timing events:
 
 ```
 profiler_config {
-  enable_profiler: true
   trace_enabled: true
-  trace_log_count: 5
+  enable_profiler: true
+  trace_log_interval_count: 200
+  trace_log_path: "/sdcard/Download/"
 }
 ```
 
@@ -63,7 +65,7 @@ MediaPipe will emit data into a pre-specified directory:
 
 *   On the desktop, this will be the `/tmp` directory.
 
-*   On Android, this will be the `/sdcard` directory.
+*   On Android, this will be the external storage directory (e.g., `/storage/emulated/0/`).
 
 *   On iOS, this can be reached through XCode. Select "Window/Devices and
     Simulators" and select the "Devices" tab.
@@ -72,6 +74,9 @@ MediaPipe will emit data into a pre-specified directory:
 
     You can open the Download Container. Logs will be located in `application
     container/.xcappdata/AppData/Documents/`
+    If XCode shows empty content for the downloaded container file, you can
+    right click and select 'Show Package Contents' in Finder. Logs
+    will be located in 'AppData/Documents/'
 
     ![Windows Download Container](../images/visualizer/ios_download_container.png)
 
@@ -99,7 +104,7 @@ we record ten intervals of half a second each. This can be overridden by adding
     *   Include the line below in your `AndroidManifest.xml` file.
 
         ```xml
-        <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+        <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
         ```
 
     *   Grant the permission either upon first app launch, or by going into
@@ -126,8 +131,8 @@ we record ten intervals of half a second each. This can be overridden by adding
     events to a trace log files at:
 
     ```bash
-    /sdcard/mediapipe_trace_0.binarypb
-    /sdcard/mediapipe_trace_1.binarypb
+    /storage/emulated/0/Download/mediapipe_trace_0.binarypb
+    /storage/emulated/0/Download/mediapipe_trace_1.binarypb
     ```
 
     After every 5 sec, writing shifts to a successive trace log file, such that
@@ -135,25 +140,29 @@ we record ten intervals of half a second each. This can be overridden by adding
     trace files have been written to the device using adb shell.
 
     ```bash
-    adb shell "ls -la /sdcard/"
+    adb shell "ls -la /storage/emulated/0/Download"
     ```
 
-    On android, MediaPipe selects the external storage directory `/sdcard` for
+    On android, MediaPipe selects the external storage (e.g., `/storage/emulated/0/`) for
     trace logs. This directory can be overridden using the setting
     `trace_log_path`, like:
 
     ```bash
     profiler_config {
       trace_enabled: true
-      trace_log_path: "/sdcard/profiles"
+      enable_profiler: true
+      trace_log_path: "/sdcard/Download/profiles/"
     }
     ```
+
+    Note: The forward slash at the end of the `trace_log_path` is necessary for
+    indicating that `profiles` is a directory (that *should* exist).
 
 *   Download the trace files from the device.
 
     ```bash
     # from your terminal
-    adb pull /sdcard/mediapipe_trace_0.binarypb
+    adb pull /storage/emulated/0/Download/mediapipe_trace_0.binarypb
     # if successful you should see something like
     # /sdcard/mediapipe_trace_0.binarypb: 1 file pulled. 0.1 MB/s (6766 bytes in 0.045s)
     ```
@@ -295,7 +304,7 @@ trace_log_margin_usec
     in trace log output. This margin allows time for events to be appended to
     the TraceBuffer.
 
-trace_log_duration_events
+trace_log_instant_events
 :   False specifies an event for each calculator invocation. True specifies a
     separate event for each start and finish time.
 

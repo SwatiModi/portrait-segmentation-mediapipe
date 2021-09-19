@@ -16,6 +16,7 @@
 
 #include "mediapipe/framework/deps/no_destructor.h"
 #include "mediapipe/framework/port/ret_check.h"
+#include "mediapipe/gpu/gl_context.h"
 #include "mediapipe/gpu/gl_context_options.pb.h"
 #include "mediapipe/gpu/graph_support.h"
 
@@ -103,12 +104,13 @@ GpuResources::~GpuResources() {
 #endif
 }
 
-void GpuResources::PrepareGpuNode(CalculatorNode* node) {
+absl::Status GpuResources::PrepareGpuNode(CalculatorNode* node) {
   CHECK(node->UsesGpu());
   std::string node_id = node->GetCalculatorState().NodeName();
   std::string node_type = node->GetCalculatorState().CalculatorType();
   std::string context_key;
 
+#ifndef __EMSCRIPTEN__
   // TODO Allow calculators to request a separate context.
   // For now, white-list a few calculators to run in their own context.
   bool gets_own_context = (node_type == "ImageFrameToGpuBufferCalculator") ||
@@ -125,7 +127,14 @@ void GpuResources::PrepareGpuNode(CalculatorNode* node) {
   } else {
     context_key = absl::StrCat("auto:", node_id);
   }
+#else
+  // On Emscripten we currently do not support multiple contexts.
+  context_key = SharedContextKey();
+#endif  // !__EMSCRIPTEN__
   node_key_[node_id] = context_key;
+
+  ASSIGN_OR_RETURN(std::shared_ptr<GlContext> context,
+                   GetOrCreateGlContext(context_key));
 
   if (kGlContextUseDedicatedThread) {
     std::string executor_name =
@@ -133,32 +142,37 @@ void GpuResources::PrepareGpuNode(CalculatorNode* node) {
     node->SetExecutor(executor_name);
     if (!ContainsKey(named_executors_, executor_name)) {
       named_executors_.emplace(
-          executor_name,
-          std::make_shared<GlContextExecutor>(gl_context(context_key).get()));
+          executor_name, std::make_shared<GlContextExecutor>(context.get()));
     }
   }
-  gl_context(context_key)
-      ->SetProfilingContext(
-          node->GetCalculatorState().GetSharedProfilingContext());
+  context->SetProfilingContext(
+      node->GetCalculatorState().GetSharedProfilingContext());
+
+  return OkStatus();
 }
 
 // TODO: expose and use an actual ID instead of using the
 // canonicalized name.
 const std::shared_ptr<GlContext>& GpuResources::gl_context(
     CalculatorContext* cc) {
-  return gl_context(cc ? node_key_[cc->NodeName()] : SharedContextKey());
+  if (cc) {
+    auto it = gl_key_context_.find(node_key_[cc->NodeName()]);
+    if (it != gl_key_context_.end()) {
+      return it->second;
+    }
+  }
+
+  return gl_key_context_[SharedContextKey()];
 }
 
-const std::shared_ptr<GlContext>& GpuResources::gl_context(
+GlContext::StatusOrGlContext GpuResources::GetOrCreateGlContext(
     const std::string& key) {
   auto it = gl_key_context_.find(key);
   if (it == gl_key_context_.end()) {
-    it = gl_key_context_
-             .emplace(key,
-                      GlContext::Create(*gl_key_context_[SharedContextKey()],
-                                        kGlContextUseDedicatedThread)
-                          .ValueOrDie())
-             .first;
+    ASSIGN_OR_RETURN(std::shared_ptr<GlContext> new_context,
+                     GlContext::Create(*gl_key_context_[SharedContextKey()],
+                                       kGlContextUseDedicatedThread));
+    it = gl_key_context_.emplace(key, new_context).first;
 #if __APPLE__
     gpu_buffer_pool_.RegisterTextureCache(it->second->cv_texture_cache());
 #endif

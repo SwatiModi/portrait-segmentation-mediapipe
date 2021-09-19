@@ -30,7 +30,7 @@ namespace {
 
 constexpr int kIntTestValue = 33;
 
-typedef std::function<::mediapipe::Status(CalculatorContext* cc)>
+typedef std::function<absl::Status(CalculatorContext* cc)>
     CalculatorContextFunction;
 
 // Returns the contents of a set of Packets.
@@ -87,26 +87,24 @@ class CountingExecutor : public Executor {
 // streams and outputs the sum to the output stream.
 class IntAdderCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     for (int i = 0; i < cc->Inputs().NumEntries(); ++i) {
       cc->Inputs().Index(i).Set<int>();
     }
     cc->Outputs().Index(0).Set<int>();
-    return ::mediapipe::OkStatus();
+    cc->SetTimestampOffset(TimestampDiff(0));
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
-    cc->SetOffset(TimestampDiff(0));
-    return ::mediapipe::OkStatus();
-  }
+  absl::Status Open(CalculatorContext* cc) final { return absl::OkStatus(); }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     int sum = 0;
     for (int i = 0; i < cc->Inputs().NumEntries(); ++i) {
       sum += cc->Inputs().Index(i).Get<int>();
     }
     cc->Outputs().Index(0).Add(new int(sum), cc->InputTimestamp());
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 REGISTER_CALCULATOR(IntAdderCalculator);
@@ -114,13 +112,13 @@ REGISTER_CALCULATOR(IntAdderCalculator);
 template <typename InputType>
 class TypedSinkCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).Set<InputType>();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
-    return ::mediapipe::OkStatus();
+  absl::Status Process(CalculatorContext* cc) override {
+    return absl::OkStatus();
   }
 };
 typedef TypedSinkCalculator<std::string> StringSinkCalculator;
@@ -132,13 +130,13 @@ REGISTER_CALCULATOR(IntSinkCalculator);
 // integer.
 class EvenIntFilterCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).Set<int>();
     cc->Outputs().Index(0).Set<int>();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     int value = cc->Inputs().Index(0).Get<int>();
     if (value % 2 == 0) {
       cc->Outputs().Index(0).AddPacket(cc->Inputs().Index(0).Value());
@@ -146,7 +144,7 @@ class EvenIntFilterCalculator : public CalculatorBase {
       cc->Outputs().Index(0).SetNextTimestampBound(
           cc->InputTimestamp().NextAllowedInStream());
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 REGISTER_CALCULATOR(EvenIntFilterCalculator);
@@ -156,19 +154,19 @@ REGISTER_CALCULATOR(EvenIntFilterCalculator);
 // input stream carries the value true.
 class ValveCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).SetAny();
     cc->Inputs().Index(1).Set<bool>();
     cc->Outputs().Index(0).SetSameAs(&cc->Inputs().Index(0));
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
+  absl::Status Open(CalculatorContext* cc) final {
     cc->Outputs().Index(0).SetHeader(cc->Inputs().Index(0).Header());
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     if (cc->Inputs().Index(1).Get<bool>()) {
       cc->GetCounter("PassThrough")->Increment();
       cc->Outputs().Index(0).AddPacket(cc->Inputs().Index(0).Value());
@@ -182,7 +180,7 @@ class ValveCalculator : public CalculatorBase {
       cc->Outputs().Index(0).SetNextTimestampBound(
           cc->InputTimestamp().NextAllowedInStream());
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 REGISTER_CALCULATOR(ValveCalculator);
@@ -191,27 +189,27 @@ REGISTER_CALCULATOR(ValveCalculator);
 // but shifts the timestamp.
 class TimeShiftCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).SetAny();
     cc->Outputs().Index(0).SetSameAs(&cc->Inputs().Index(0));
     cc->InputSidePackets().Index(0).Set<TimestampDiff>();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
+  absl::Status Open(CalculatorContext* cc) final {
     // Input: arbitrary Packets.
     // Output: copy of the input.
     cc->Outputs().Index(0).SetHeader(cc->Inputs().Index(0).Header());
     shift_ = cc->InputSidePackets().Index(0).Get<TimestampDiff>();
     cc->SetOffset(shift_);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     cc->GetCounter("PassThrough")->Increment();
     cc->Outputs().Index(0).AddPacket(
         cc->Inputs().Index(0).Value().At(cc->InputTimestamp() + shift_));
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
  private:
@@ -231,17 +229,17 @@ REGISTER_CALCULATOR(TimeShiftCalculator);
 //   T=2000 Output 100
 class OutputAndBoundSourceCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Outputs().Index(0).Set<int>();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override {
+  absl::Status Open(CalculatorContext* cc) override {
     counter_ = 0;
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override {
+  absl::Status Process(CalculatorContext* cc) override {
     Timestamp timestamp(counter_);
     if (counter_ % 20 == 0) {
       cc->Outputs().Index(0).AddPacket(
@@ -253,7 +251,7 @@ class OutputAndBoundSourceCalculator : public CalculatorBase {
       return tool::StatusStop();
     }
     counter_ += 10;
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
  private:
@@ -266,42 +264,40 @@ REGISTER_CALCULATOR(OutputAndBoundSourceCalculator);
 // Process() method. The input stream and output stream have the integer type.
 class Delay20Calculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).Set<int>();
     cc->Outputs().Index(0).Set<int>();
-    return ::mediapipe::OkStatus();
+    cc->SetTimestampOffset(TimestampDiff(20));
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
-    cc->SetOffset(TimestampDiff(20));
+  absl::Status Open(CalculatorContext* cc) final {
     cc->Outputs().Index(0).AddPacket(MakePacket<int>(0).At(Timestamp(0)));
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     const Packet& packet = cc->Inputs().Index(0).Value();
     Timestamp timestamp = packet.Timestamp() + 20;
     cc->Outputs().Index(0).AddPacket(packet.At(timestamp));
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 REGISTER_CALCULATOR(Delay20Calculator);
 
 class CustomBoundCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).Set<int>();
     cc->Outputs().Index(0).Set<int>();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
-    return ::mediapipe::OkStatus();
-  }
+  absl::Status Open(CalculatorContext* cc) final { return absl::OkStatus(); }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     cc->Outputs().Index(0).SetNextTimestampBound(cc->InputTimestamp() + 1);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 REGISTER_CALCULATOR(CustomBoundCalculator);
@@ -310,7 +306,7 @@ REGISTER_CALCULATOR(CustomBoundCalculator);
 TEST(CalculatorGraph, SetNextTimestampBoundPropagation) {
   CalculatorGraph graph;
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: 'in'
         input_stream: 'gate'
         node {
@@ -342,7 +338,7 @@ TEST(CalculatorGraph, SetNextTimestampBoundPropagation) {
           input_stream: 'merged'
           output_stream: 'out'
         }
-      )");
+      )pb");
 
   Timestamp timestamp = Timestamp(0);
   auto send_inputs = [&graph, &timestamp](int input, bool pass) {
@@ -435,7 +431,7 @@ TEST(CalculatorGraph, NotAllInputPacketsAtNextTimestampBoundAvailable) {
   //
   CalculatorGraph graph;
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: 'in0_unfiltered'
         input_stream: 'in1_to_be_filtered'
         node {
@@ -449,7 +445,7 @@ TEST(CalculatorGraph, NotAllInputPacketsAtNextTimestampBoundAvailable) {
           input_stream: 'in1_filtered'
           output_stream: 'out'
         }
-      )");
+      )pb");
   std::vector<Packet> packet_dump;
   tool::AddVectorSink("out", &config, &packet_dump);
 
@@ -507,7 +503,7 @@ TEST(CalculatorGraph, NotAllInputPacketsAtNextTimestampBoundAvailable) {
 
 TEST(CalculatorGraph, PropagateBoundLoop) {
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         node {
           calculator: 'OutputAndBoundSourceCalculator'
           output_stream: 'integers'
@@ -530,7 +526,7 @@ TEST(CalculatorGraph, PropagateBoundLoop) {
           input_stream: 'sum'
           output_stream: 'old_sum'
         }
-      )");
+      )pb");
   std::vector<Packet> packet_dump;
   tool::AddVectorSink("sum", &config, &packet_dump);
 
@@ -553,7 +549,7 @@ TEST(CalculatorGraph, CheckBatchProcessingBoundPropagation) {
   // the sink calculator's input stream should report packet timestamp
   // mismatches.
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         node {
           calculator: 'OutputAndBoundSourceCalculator'
           output_stream: 'integers'
@@ -572,7 +568,7 @@ TEST(CalculatorGraph, CheckBatchProcessingBoundPropagation) {
           }
         }
         node { calculator: 'IntSinkCalculator' input_stream: 'output' }
-      )");
+      )pb");
   CalculatorGraph graph;
   MP_ASSERT_OK(graph.Initialize(config));
   MP_ASSERT_OK(graph.Run());
@@ -585,7 +581,7 @@ TEST(CalculatorGraphBoundsTest, ImmediateHandlerBounds) {
   // The second PassthroughCalculator delivers an output packet whenever the
   // first PassThroughCalculator delivers a timestamp bound.
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: 'input'
         node {
           calculator: 'CustomBoundCalculator'
@@ -607,13 +603,13 @@ TEST(CalculatorGraphBoundsTest, ImmediateHandlerBounds) {
           output_stream: 'bounds_output'
           output_stream: 'output'
         }
-      )");
+      )pb");
   CalculatorGraph graph;
   std::vector<Packet> output_packets;
   MP_ASSERT_OK(graph.Initialize(config));
   MP_ASSERT_OK(graph.ObserveOutputStream("output", [&](const Packet& p) {
     output_packets.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.WaitUntilIdle());
@@ -638,47 +634,41 @@ TEST(CalculatorGraphBoundsTest, ImmediateHandlerBounds) {
 // A Calculator that only sets timestamp bound by SetOffset().
 class OffsetBoundCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).Set<int>();
     cc->Outputs().Index(0).Set<int>();
-    return ::mediapipe::OkStatus();
+    cc->SetTimestampOffset(TimestampDiff(0));
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
-    cc->SetOffset(0);
-    return ::mediapipe::OkStatus();
-  }
+  absl::Status Open(CalculatorContext* cc) final { return absl::OkStatus(); }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
-    return ::mediapipe::OkStatus();
-  }
+  absl::Status Process(CalculatorContext* cc) final { return absl::OkStatus(); }
 };
 REGISTER_CALCULATOR(OffsetBoundCalculator);
 
 // A Calculator that produces a packet for each call to Process.
 class BoundToPacketCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     for (int i = 0; i < cc->Inputs().NumEntries(); ++i) {
       cc->Inputs().Index(i).SetAny();
     }
     for (int i = 0; i < cc->Outputs().NumEntries(); ++i) {
       cc->Outputs().Index(i).Set<Timestamp>();
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
-    return ::mediapipe::OkStatus();
-  }
+  absl::Status Open(CalculatorContext* cc) final { return absl::OkStatus(); }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     for (int i = 0; i < cc->Outputs().NumEntries(); ++i) {
       Timestamp t = cc->Inputs().Index(i).Value().Timestamp();
       cc->Outputs().Index(i).AddPacket(
           mediapipe::MakePacket<Timestamp>(t).At(cc->InputTimestamp()));
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 REGISTER_CALCULATOR(BoundToPacketCalculator);
@@ -688,22 +678,20 @@ class FuturePacketCalculator : public CalculatorBase {
  public:
   static constexpr int64 kOutputFutureMicros = 3;
 
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).Set<int>();
     cc->Outputs().Index(0).Set<int>();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
-    return ::mediapipe::OkStatus();
-  }
+  absl::Status Open(CalculatorContext* cc) final { return absl::OkStatus(); }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     const Packet& packet = cc->Inputs().Index(0).Value();
     Timestamp timestamp =
         Timestamp(packet.Timestamp().Value() + kOutputFutureMicros);
     cc->Outputs().Index(0).AddPacket(packet.At(timestamp));
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 REGISTER_CALCULATOR(FuturePacketCalculator);
@@ -715,7 +703,7 @@ TEST(CalculatorGraphBoundsTest, OffsetBoundPropagation) {
   // The PassThroughCalculator delivers an output packet whenever the
   // OffsetBoundCalculator delivers a timestamp bound.
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: 'input'
         node {
           calculator: 'OffsetBoundCalculator'
@@ -729,13 +717,13 @@ TEST(CalculatorGraphBoundsTest, OffsetBoundPropagation) {
           output_stream: 'bounds_output'
           output_stream: 'output'
         }
-      )");
+      )pb");
   CalculatorGraph graph;
   std::vector<Packet> output_packets;
   MP_ASSERT_OK(graph.Initialize(config));
   MP_ASSERT_OK(graph.ObserveOutputStream("output", [&](const Packet& p) {
     output_packets.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.WaitUntilIdle());
@@ -763,7 +751,7 @@ TEST(CalculatorGraphBoundsTest, BoundWithoutInputPackets) {
   // The BoundToPacketCalculator delivers an output packet whenever the
   // OffsetBoundCalculator delivers a timestamp bound.
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: 'input'
         node {
           calculator: 'FuturePacketCalculator'
@@ -780,13 +768,13 @@ TEST(CalculatorGraphBoundsTest, BoundWithoutInputPackets) {
           input_stream: 'bounds'
           output_stream: 'output'
         }
-      )");
+      )pb");
   CalculatorGraph graph;
   std::vector<Packet> output_packets;
   MP_ASSERT_OK(graph.Initialize(config));
   MP_ASSERT_OK(graph.ObserveOutputStream("output", [&](const Packet& p) {
     output_packets.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.WaitUntilIdle());
@@ -821,7 +809,7 @@ TEST(CalculatorGraphBoundsTest, FixedSizeHandlerBounds) {
   // The PassthroughCalculator delivers an output packet whenever the
   // LambdaCalculator delivers a timestamp bound.
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: 'input'
         input_side_packet: 'open_function'
         input_side_packet: 'process_function'
@@ -842,7 +830,7 @@ TEST(CalculatorGraphBoundsTest, FixedSizeHandlerBounds) {
           output_stream: 'thinned_output'
           output_stream: 'output'
         }
-      )");
+      )pb");
   CalculatorGraph graph;
 
   // The task_semaphore counts the number of running tasks.
@@ -860,13 +848,13 @@ TEST(CalculatorGraphBoundsTest, FixedSizeHandlerBounds) {
   std::vector<Packet> outputs;
   MP_ASSERT_OK(graph.ObserveOutputStream("output", [&](const Packet& p) {
     outputs.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   std::vector<Packet> thinned_outputs;
   MP_ASSERT_OK(
       graph.ObserveOutputStream("thinned_output", [&](const Packet& p) {
         thinned_outputs.push_back(p);
-        return ::mediapipe::OkStatus();
+        return absl::OkStatus();
       }));
 
   // The enter_semaphore is used to wait for LambdaCalculator::Process.
@@ -875,13 +863,13 @@ TEST(CalculatorGraphBoundsTest, FixedSizeHandlerBounds) {
   AtomicSemaphore exit_semaphore(0);
   CalculatorContextFunction open_fn = [&](CalculatorContext* cc) {
     cc->SetOffset(0);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   };
   CalculatorContextFunction process_fn = [&](CalculatorContext* cc) {
     enter_semaphore.Release(1);
     exit_semaphore.Acquire(1);
     cc->Outputs().Index(0).AddPacket(cc->Inputs().Index(0).Value());
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   };
   MP_ASSERT_OK(graph.StartRun({
       {"open_fn", Adopt(new auto(open_fn))},
@@ -935,22 +923,20 @@ TEST(CalculatorGraphBoundsTest, FixedSizeHandlerBounds) {
 // A Calculator that outputs only the last packet from its input stream.
 class LastPacketCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).SetAny();
     cc->Outputs().Index(0).SetAny();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
-    return ::mediapipe::OkStatus();
-  }
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Open(CalculatorContext* cc) final { return absl::OkStatus(); }
+  absl::Status Process(CalculatorContext* cc) final {
     cc->Outputs().Index(0).SetNextTimestampBound(cc->InputTimestamp());
     last_packet_ = cc->Inputs().Index(0).Value();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
-  ::mediapipe::Status Close(CalculatorContext* cc) final {
+  absl::Status Close(CalculatorContext* cc) final {
     cc->Outputs().Index(0).AddPacket(last_packet_);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
  private:
@@ -965,7 +951,7 @@ TEST(CalculatorGraphBoundsTest, LastPacketCheck) {
   // packet or input stream close.  The output "last_output" shows the
   // last packet, and "output" shows the timestamp bounds.
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         input_stream: 'input'
         output_stream: 'output'
         output_stream: 'last_output'
@@ -986,18 +972,18 @@ TEST(CalculatorGraphBoundsTest, LastPacketCheck) {
           output_stream: 'output'
           output_stream: 'last_output'
         }
-      )");
+      )pb");
   CalculatorGraph graph;
   std::vector<Packet> output_packets;
   MP_ASSERT_OK(graph.Initialize(config));
   MP_ASSERT_OK(graph.ObserveOutputStream("output", [&](const Packet& p) {
     output_packets.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   std::vector<Packet> last_output_packets;
   MP_ASSERT_OK(graph.ObserveOutputStream("last_output", [&](const Packet& p) {
     last_output_packets.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.WaitUntilIdle());
@@ -1048,18 +1034,18 @@ void TestBoundsForEmptyInputs(std::string input_stream_handler) {
   absl::StrReplaceAll({{"$input_stream_handler", input_stream_handler}},
                       &config_str);
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
   CalculatorGraph graph;
   std::vector<Packet> input_ts_packets;
   std::vector<Packet> bounds_ts_packets;
   MP_ASSERT_OK(graph.Initialize(config));
   MP_ASSERT_OK(graph.ObserveOutputStream("input_ts", [&](const Packet& p) {
     input_ts_packets.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   MP_ASSERT_OK(graph.ObserveOutputStream("bounds_ts", [&](const Packet& p) {
     bounds_ts_packets.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.WaitUntilIdle());
@@ -1129,7 +1115,7 @@ TEST(CalculatorGraphBoundsTest, BoundsForEmptyInputs_SyncSets) {
 // A Calculator that produces a packet for each timestamp bounds update.
 class ProcessBoundToPacketCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     for (int i = 0; i < cc->Inputs().NumEntries(); ++i) {
       cc->Inputs().Index(i).SetAny();
     }
@@ -1138,10 +1124,10 @@ class ProcessBoundToPacketCalculator : public CalculatorBase {
     }
     cc->SetInputStreamHandler("ImmediateInputStreamHandler");
     cc->SetProcessTimestampBounds(true);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     for (int i = 0; i < cc->Outputs().NumEntries(); ++i) {
       Timestamp t = cc->Inputs().Index(i).Value().Timestamp();
       // Create a new packet for each input stream with a new timestamp bound,
@@ -1151,7 +1137,7 @@ class ProcessBoundToPacketCalculator : public CalculatorBase {
         cc->Outputs().Index(i).Add(new auto(t), t);
       }
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 REGISTER_CALCULATOR(ProcessBoundToPacketCalculator);
@@ -1159,7 +1145,7 @@ REGISTER_CALCULATOR(ProcessBoundToPacketCalculator);
 // A Calculator that passes through each packet and timestamp immediately.
 class ImmediatePassthroughCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     for (int i = 0; i < cc->Inputs().NumEntries(); ++i) {
       cc->Inputs().Index(i).SetAny();
     }
@@ -1168,10 +1154,10 @@ class ImmediatePassthroughCalculator : public CalculatorBase {
     }
     cc->SetInputStreamHandler("ImmediateInputStreamHandler");
     cc->SetProcessTimestampBounds(true);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     for (int i = 0; i < cc->Outputs().NumEntries(); ++i) {
       if (!cc->Inputs().Index(i).IsEmpty()) {
         cc->Outputs().Index(i).AddPacket(cc->Inputs().Index(i).Value());
@@ -1185,7 +1171,7 @@ class ImmediatePassthroughCalculator : public CalculatorBase {
         }
       }
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 };
 REGISTER_CALCULATOR(ImmediatePassthroughCalculator);
@@ -1217,14 +1203,14 @@ void TestProcessForEmptyInputs(const std::string& input_stream_handler) {
   absl::StrReplaceAll({{"$input_stream_handler", input_stream_handler}},
                       &config_str);
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
   CalculatorGraph graph;
   std::vector<Packet> input_ts_packets;
   std::vector<Packet> bounds_ts_packets;
   MP_ASSERT_OK(graph.Initialize(config));
   MP_ASSERT_OK(graph.ObserveOutputStream("bounds_ts", [&](const Packet& p) {
     bounds_ts_packets.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.WaitUntilIdle());
@@ -1317,18 +1303,18 @@ TEST(CalculatorGraphBoundsTest, ProcessTimestampBounds_Passthrough) {
             }
           )";
   CalculatorGraphConfig config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
   CalculatorGraph graph;
   std::vector<Packet> output_0_packets;
   std::vector<Packet> output_1_packets;
   MP_ASSERT_OK(graph.Initialize(config));
   MP_ASSERT_OK(graph.ObserveOutputStream("output_0", [&](const Packet& p) {
     output_0_packets.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   MP_ASSERT_OK(graph.ObserveOutputStream("output_1", [&](const Packet& p) {
     output_1_packets.push_back(p);
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }));
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.WaitUntilIdle());
@@ -1369,6 +1355,230 @@ TEST(CalculatorGraphBoundsTest, ProcessTimestampBounds_Passthrough) {
   EXPECT_EQ(output_0_packets.size(), kNumInputs0);
   EXPECT_EQ(output_1_packets.size(), kNumInputs1);
   EXPECT_EQ(GetContents<Timestamp>(output_1_packets), expected_output_1);
+
+  // Shutdown the graph.
+  MP_ASSERT_OK(graph.CloseAllPacketSources());
+  MP_ASSERT_OK(graph.WaitUntilDone());
+}
+
+TEST(CalculatorGraphBoundsTest, PostStreamPacketToSetProcessTimestampBound) {
+  std::string config_str = R"(
+            input_stream: "input_0"
+            node {
+              calculator: "ProcessBoundToPacketCalculator"
+              input_stream: "input_0"
+              output_stream: "output_0"
+            }
+          )";
+  CalculatorGraphConfig config =
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
+  CalculatorGraph graph;
+  std::vector<Packet> output_0_packets;
+  MP_ASSERT_OK(graph.Initialize(config));
+  MP_ASSERT_OK(graph.ObserveOutputStream("output_0", [&](const Packet& p) {
+    output_0_packets.push_back(p);
+    return absl::OkStatus();
+  }));
+  MP_ASSERT_OK(graph.StartRun({}));
+  MP_ASSERT_OK(graph.WaitUntilIdle());
+
+  MP_ASSERT_OK(graph.AddPacketToInputStream(
+      "input_0", MakePacket<int>(0).At(Timestamp::PostStream())));
+  MP_ASSERT_OK(graph.WaitUntilIdle());
+  EXPECT_EQ(output_0_packets.size(), 1);
+  EXPECT_EQ(output_0_packets[0].Timestamp(), Timestamp::PostStream());
+
+  // Shutdown the graph.
+  MP_ASSERT_OK(graph.CloseAllPacketSources());
+  MP_ASSERT_OK(graph.WaitUntilDone());
+}
+
+// A Calculator that sends a timestamp bound for every other input.
+class OccasionalBoundCalculator : public CalculatorBase {
+ public:
+  static absl::Status GetContract(CalculatorContract* cc) {
+    cc->Inputs().Index(0).Set<int>();
+    cc->Outputs().Index(0).SetSameAs(&cc->Inputs().Index(0));
+    return absl::OkStatus();
+  }
+
+  absl::Status Process(CalculatorContext* cc) final {
+    absl::SleepFor(absl::Milliseconds(1));
+    if (cc->InputTimestamp().Value() % 20 == 0) {
+      Timestamp bound = cc->InputTimestamp().NextAllowedInStream();
+      cc->Outputs().Index(0).SetNextTimestampBound(
+          std::max(bound, cc->Outputs().Index(0).NextTimestampBound()));
+    }
+    return absl::OkStatus();
+  }
+};
+REGISTER_CALCULATOR(OccasionalBoundCalculator);
+
+// This test fails without the fix in CL/324708313, because
+// PropagateUpdatesToMirrors is called with decreasing next_timestamp_bound,
+// because each parallel thread in-flight computes next_timestamp_bound using
+// a separate OutputStreamShard::NextTimestampBound.
+TEST(CalculatorGraphBoundsTest, MaxInFlightWithOccasionalBound) {
+  // OccasionalCalculator runs on parallel threads and sends ts occasionally.
+  std::string config_str = R"(
+            input_stream: "input_0"
+            node {
+              calculator: "OccasionalBoundCalculator"
+              input_stream: "input_0"
+              output_stream: "output_0"
+              max_in_flight: 5
+            }
+            num_threads: 4
+          )";
+  CalculatorGraphConfig config =
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
+  CalculatorGraph graph;
+  std::vector<Packet> output_0_packets;
+  MP_ASSERT_OK(graph.Initialize(config));
+  MP_ASSERT_OK(graph.ObserveOutputStream("output_0", [&](const Packet& p) {
+    output_0_packets.push_back(p);
+    return absl::OkStatus();
+  }));
+  MP_ASSERT_OK(graph.StartRun({}));
+  MP_ASSERT_OK(graph.WaitUntilIdle());
+
+  // Send in packets.
+  for (int i = 0; i < 9; ++i) {
+    const int ts = 10 + i * 10;
+    Packet p = MakePacket<int>(i).At(Timestamp(ts));
+    MP_ASSERT_OK(graph.AddPacketToInputStream("input_0", p));
+  }
+
+  // Only bounds arrive.
+  MP_ASSERT_OK(graph.WaitUntilIdle());
+  EXPECT_EQ(output_0_packets.size(), 0);
+
+  // Shutdown the graph.
+  MP_ASSERT_OK(graph.CloseAllPacketSources());
+  MP_ASSERT_OK(graph.WaitUntilDone());
+}
+
+// A Calculator that uses both SetTimestampOffset and SetNextTimestampBound.
+class OffsetAndBoundCalculator : public CalculatorBase {
+ public:
+  static absl::Status GetContract(CalculatorContract* cc) {
+    cc->Inputs().Index(0).Set<int>();
+    cc->Outputs().Index(0).SetSameAs(&cc->Inputs().Index(0));
+    cc->SetTimestampOffset(TimestampDiff(0));
+    return absl::OkStatus();
+  }
+  absl::Status Open(CalculatorContext* cc) final { return absl::OkStatus(); }
+  absl::Status Process(CalculatorContext* cc) final {
+    if (cc->InputTimestamp().Value() % 20 == 0) {
+      cc->Outputs().Index(0).SetNextTimestampBound(Timestamp(10000));
+    }
+    return absl::OkStatus();
+  }
+};
+REGISTER_CALCULATOR(OffsetAndBoundCalculator);
+
+// This test shows that the bound defined by SetOffset is ignored
+// if it is superseded by SetNextTimestampBound.
+TEST(CalculatorGraphBoundsTest, OffsetAndBound) {
+  // OffsetAndBoundCalculator runs on parallel threads and sends ts
+  // occasionally.
+  std::string config_str = R"(
+            input_stream: "input_0"
+            node {
+              calculator: "OffsetAndBoundCalculator"
+              input_stream: "input_0"
+              output_stream: "output_0"
+            }
+          )";
+  CalculatorGraphConfig config =
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
+  CalculatorGraph graph;
+  std::vector<Packet> output_0_packets;
+  MP_ASSERT_OK(graph.Initialize(config));
+  MP_ASSERT_OK(graph.ObserveOutputStream("output_0", [&](const Packet& p) {
+    output_0_packets.push_back(p);
+    return absl::OkStatus();
+  }));
+  MP_ASSERT_OK(graph.StartRun({}));
+  MP_ASSERT_OK(graph.WaitUntilIdle());
+
+  // Send in packets.
+  for (int i = 0; i < 9; ++i) {
+    const int ts = 10 + i * 10;
+    Packet p = MakePacket<int>(i).At(Timestamp(ts));
+    MP_ASSERT_OK(graph.AddPacketToInputStream("input_0", p));
+  }
+
+  // Only bounds arrive.
+  MP_ASSERT_OK(graph.WaitUntilIdle());
+  EXPECT_EQ(output_0_packets.size(), 0);
+
+  // Shutdown the graph.
+  MP_ASSERT_OK(graph.CloseAllPacketSources());
+  MP_ASSERT_OK(graph.WaitUntilDone());
+}
+
+// A Calculator that sends empty output stream packets.
+class EmptyPacketCalculator : public CalculatorBase {
+ public:
+  static absl::Status GetContract(CalculatorContract* cc) {
+    cc->Inputs().Index(0).Set<int>();
+    cc->Outputs().Index(0).SetSameAs(&cc->Inputs().Index(0));
+    return absl::OkStatus();
+  }
+  absl::Status Open(CalculatorContext* cc) final { return absl::OkStatus(); }
+  absl::Status Process(CalculatorContext* cc) final {
+    if (cc->InputTimestamp().Value() % 2 == 0) {
+      cc->Outputs().Index(0).AddPacket(Packet().At(cc->InputTimestamp()));
+    }
+    return absl::OkStatus();
+  }
+};
+REGISTER_CALCULATOR(EmptyPacketCalculator);
+
+// This test shows that an output timestamp bound can be specified by outputing
+// an empty packet with a settled timestamp.
+TEST(CalculatorGraphBoundsTest, EmptyPacketOutput) {
+  // OffsetAndBoundCalculator runs on parallel threads and sends ts
+  // occasionally.
+  std::string config_str = R"(
+            input_stream: "input_0"
+            node {
+              calculator: "EmptyPacketCalculator"
+              input_stream: "input_0"
+              output_stream: "empty_0"
+            }
+            node {
+              calculator: "ProcessBoundToPacketCalculator"
+              input_stream: "empty_0"
+              output_stream: "output_0"
+            }
+          )";
+  CalculatorGraphConfig config =
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(config_str);
+  CalculatorGraph graph;
+  std::vector<Packet> output_0_packets;
+  MP_ASSERT_OK(graph.Initialize(config));
+  MP_ASSERT_OK(graph.ObserveOutputStream("output_0", [&](const Packet& p) {
+    output_0_packets.push_back(p);
+    return absl::OkStatus();
+  }));
+  MP_ASSERT_OK(graph.StartRun({}));
+  MP_ASSERT_OK(graph.WaitUntilIdle());
+
+  // Send in packets.
+  for (int i = 0; i < 9; ++i) {
+    const int ts = 10 + i * 10;
+    Packet p = MakePacket<int>(i).At(Timestamp(ts));
+    MP_ASSERT_OK(graph.AddPacketToInputStream("input_0", p));
+    MP_ASSERT_OK(graph.WaitUntilIdle());
+  }
+
+  // 9 empty packets are converted to bounds and then to packets.
+  EXPECT_EQ(output_0_packets.size(), 9);
+  for (int i = 0; i < 9; ++i) {
+    EXPECT_EQ(output_0_packets[i].Timestamp(), Timestamp(10 + i * 10));
+  }
 
   // Shutdown the graph.
   MP_ASSERT_OK(graph.CloseAllPacketSources());

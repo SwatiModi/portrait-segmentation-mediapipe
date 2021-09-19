@@ -35,38 +35,41 @@
 //   }
 namespace mediapipe {
 
+constexpr char kFloatVectorTag[] = "FLOAT_VECTOR";
+constexpr char kEncodedTag[] = "ENCODED";
+
 class DequantizeByteArrayCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
-    cc->Inputs().Tag("ENCODED").Set<std::string>();
-    cc->Outputs().Tag("FLOAT_VECTOR").Set<std::vector<float>>();
-    return ::mediapipe::OkStatus();
+  static absl::Status GetContract(CalculatorContract* cc) {
+    cc->Inputs().Tag(kEncodedTag).Set<std::string>();
+    cc->Outputs().Tag(kFloatVectorTag).Set<std::vector<float>>();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
+  absl::Status Open(CalculatorContext* cc) final {
     const auto options =
         cc->Options<::mediapipe::DequantizeByteArrayCalculatorOptions>();
     if (!options.has_max_quantized_value() ||
         !options.has_min_quantized_value()) {
-      return ::mediapipe::InvalidArgumentError(
+      return absl::InvalidArgumentError(
           "Both max_quantized_value and min_quantized_value must be provided "
           "in DequantizeByteArrayCalculatorOptions.");
     }
     float max_quantized_value = options.max_quantized_value();
     float min_quantized_value = options.min_quantized_value();
     if (max_quantized_value < min_quantized_value + FLT_EPSILON) {
-      return ::mediapipe::InvalidArgumentError(
+      return absl::InvalidArgumentError(
           "max_quantized_value must be greater than min_quantized_value.");
     }
     float range = max_quantized_value - min_quantized_value;
     scalar_ = range / 255.0;
     bias_ = (range / 512.0) + min_quantized_value;
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     const std::string& encoded =
-        cc->Inputs().Tag("ENCODED").Value().Get<std::string>();
+        cc->Inputs().Tag(kEncodedTag).Value().Get<std::string>();
     std::vector<float> float_vector;
     float_vector.reserve(encoded.length());
     for (int i = 0; i < encoded.length(); ++i) {
@@ -74,10 +77,10 @@ class DequantizeByteArrayCalculator : public CalculatorBase {
           static_cast<unsigned char>(encoded.at(i)) * scalar_ + bias_);
     }
     cc->Outputs()
-        .Tag("FLOAT_VECTOR")
+        .Tag(kFloatVectorTag)
         .AddPacket(MakePacket<std::vector<float>>(float_vector)
                        .At(cc->InputTimestamp()));
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
  private:

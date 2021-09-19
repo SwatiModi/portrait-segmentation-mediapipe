@@ -15,7 +15,7 @@
 
 load("//mediapipe/framework/port:build_config.bzl", "mediapipe_cc_proto_library")
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:private"])
 
@@ -58,22 +58,6 @@ proto_library(
 )
 
 proto_library(
-    name = "tensorflow_session_from_saved_model_generator_proto",
-    srcs = ["tensorflow_session_from_saved_model_generator.proto"],
-    visibility = ["//visibility:public"],
-    deps = ["//mediapipe/framework:packet_generator_proto"],
-)
-
-proto_library(
-    name = "tensorflow_session_from_saved_model_calculator_proto",
-    srcs = ["tensorflow_session_from_saved_model_calculator.proto"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//mediapipe/framework:calculator_proto",
-    ],
-)
-
-proto_library(
     name = "tensor_squeeze_dimensions_calculator_proto",
     srcs = ["tensor_squeeze_dimensions_calculator.proto"],
     visibility = ["//visibility:public"],
@@ -105,6 +89,13 @@ proto_library(
 )
 
 proto_library(
+    name = "tensor_to_vector_string_calculator_options_proto",
+    srcs = ["tensor_to_vector_string_calculator_options.proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//mediapipe/framework:calculator_proto"],
+)
+
+proto_library(
     name = "unpack_media_sequence_calculator_proto",
     srcs = ["unpack_media_sequence_calculator.proto"],
     visibility = ["//visibility:public"],
@@ -118,6 +109,13 @@ proto_library(
 proto_library(
     name = "vector_float_to_tensor_calculator_options_proto",
     srcs = ["vector_float_to_tensor_calculator_options.proto"],
+    visibility = ["//visibility:public"],
+    deps = ["//mediapipe/framework:calculator_proto"],
+)
+
+proto_library(
+    name = "vector_string_to_tensor_calculator_options_proto",
+    srcs = ["vector_string_to_tensor_calculator_options.proto"],
     visibility = ["//visibility:public"],
     deps = ["//mediapipe/framework:calculator_proto"],
 )
@@ -212,7 +210,10 @@ mediapipe_cc_proto_library(
 mediapipe_cc_proto_library(
     name = "tensorflow_session_from_saved_model_generator_cc_proto",
     srcs = ["tensorflow_session_from_saved_model_generator.proto"],
-    cc_deps = ["//mediapipe/framework:packet_generator_cc_proto"],
+    cc_deps = [
+        "//mediapipe/framework:packet_generator_cc_proto",
+        "@org_tensorflow//tensorflow/core:protos_all_cc",
+    ],
     visibility = ["//visibility:public"],
     deps = [":tensorflow_session_from_saved_model_generator_proto"],
 )
@@ -220,7 +221,10 @@ mediapipe_cc_proto_library(
 mediapipe_cc_proto_library(
     name = "tensorflow_session_from_saved_model_calculator_cc_proto",
     srcs = ["tensorflow_session_from_saved_model_calculator.proto"],
-    cc_deps = ["//mediapipe/framework:calculator_cc_proto"],
+    cc_deps = [
+        "//mediapipe/framework:calculator_cc_proto",
+        "@org_tensorflow//tensorflow/core:protos_all_cc",
+    ],
     visibility = ["//visibility:public"],
     deps = [":tensorflow_session_from_saved_model_calculator_proto"],
 )
@@ -261,6 +265,14 @@ mediapipe_cc_proto_library(
 )
 
 mediapipe_cc_proto_library(
+    name = "tensor_to_vector_string_calculator_options_cc_proto",
+    srcs = ["tensor_to_vector_string_calculator_options.proto"],
+    cc_deps = ["//mediapipe/framework:calculator_cc_proto"],
+    visibility = ["//visibility:public"],
+    deps = [":tensor_to_vector_string_calculator_options_proto"],
+)
+
+mediapipe_cc_proto_library(
     name = "unpack_media_sequence_calculator_cc_proto",
     srcs = ["unpack_media_sequence_calculator.proto"],
     cc_deps = [
@@ -289,6 +301,14 @@ mediapipe_cc_proto_library(
     cc_deps = ["//mediapipe/framework:calculator_cc_proto"],
     visibility = ["//visibility:public"],
     deps = [":vector_float_to_tensor_calculator_options_proto"],
+)
+
+mediapipe_cc_proto_library(
+    name = "vector_string_to_tensor_calculator_options_cc_proto",
+    srcs = ["vector_string_to_tensor_calculator_options.proto"],
+    cc_deps = ["//mediapipe/framework:calculator_cc_proto"],
+    visibility = ["//visibility:public"],
+    deps = [":vector_string_to_tensor_calculator_options_proto"],
 )
 
 cc_library(
@@ -321,7 +341,6 @@ cc_library(
             "@org_tensorflow//tensorflow/core:framework",
         ],
         "//mediapipe:android": [
-            "@org_tensorflow//tensorflow/core:portable_tensorflow_lib_lite",
         ],
     }),
     alwayslink = 1,
@@ -407,6 +426,7 @@ cc_library(
         "//mediapipe/framework/port:status",
         "//mediapipe/util/sequence:media_sequence",
         "//mediapipe/util/sequence:media_sequence_util",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@org_tensorflow//tensorflow/core:protos_all_cc",
     ],
@@ -437,6 +457,10 @@ cc_library(
     deps = [
         ":tensorflow_session",
         ":tensorflow_inference_calculator_cc_proto",
+        "//mediapipe/framework:timestamp",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/memory",
+        "//mediapipe/framework:calculator_context",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/tool:status_util",
         "@com_google_absl//absl/strings",
@@ -444,6 +468,8 @@ cc_library(
         "//mediapipe/framework/deps:clock",
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:ret_check",
+        "//mediapipe/framework/port:map_util",
+        "//mediapipe/framework:packet",
     ] + select({
         "//conditions:default": [
             "@org_tensorflow//tensorflow/core:framework",
@@ -488,6 +514,8 @@ cc_library(
         "//mediapipe/calculators/tensorflow:tensorflow_session_from_frozen_graph_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/tool:status_util",
+        "//mediapipe/framework/deps:clock",
+        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:ret_check",
     ] + select({
@@ -518,6 +546,8 @@ cc_library(
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/tool:status_util",
         "//mediapipe/framework/port:status",
+        "//mediapipe/framework/deps:clock",
+        "//mediapipe/framework/port:logging",
         "//mediapipe/framework/port:ret_check",
     ] + select({
         "//conditions:default": [
@@ -557,9 +587,21 @@ cc_library(
         "//mediapipe/framework/port:ret_check",
     ] + select({
         "//conditions:default": [
-            "//mediapipe/framework/port:file_helpers",
         ],
-    }),
+        "//mediapipe:android": [],
+    }) + select(
+        {
+            "//conditions:default": [
+            ],
+        },
+    ) + select(
+        {
+            "//conditions:default": [
+            ],
+            "//mediapipe:android": [
+            ],
+        },
+    ),
     alwayslink = 1,
 )
 
@@ -680,6 +722,26 @@ cc_library(
 )
 
 cc_library(
+    name = "tensor_to_vector_string_calculator",
+    srcs = ["tensor_to_vector_string_calculator.cc"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework/port:status",
+        "//mediapipe/framework/port:ret_check",
+        ":tensor_to_vector_string_calculator_options_cc_proto",
+    ] + select({
+        "//conditions:default": [
+            "@org_tensorflow//tensorflow/core:framework",
+        ],
+        "//mediapipe:android": [
+            "@org_tensorflow//tensorflow/core:portable_tensorflow_lib_lite",
+        ],
+    }),
+    alwayslink = 1,
+)
+
+cc_library(
     name = "unpack_media_sequence_calculator",
     srcs = ["unpack_media_sequence_calculator.cc"],
     visibility = [
@@ -720,6 +782,20 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":vector_float_to_tensor_calculator_options_cc_proto",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework/port:ret_check",
+        "//mediapipe/framework/port:status",
+        "@org_tensorflow//tensorflow/core:framework",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "vector_string_to_tensor_calculator",
+    srcs = ["vector_string_to_tensor_calculator.cc"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":vector_string_to_tensor_calculator_options_cc_proto",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/port:ret_check",
         "//mediapipe/framework/port:status",
@@ -835,6 +911,7 @@ cc_test(
         "//mediapipe/calculators/tensorflow:pack_media_sequence_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:calculator_runner",
+        "//mediapipe/framework:timestamp",
         "//mediapipe/framework/formats:detection_cc_proto",
         "//mediapipe/framework/formats:image_frame",
         "//mediapipe/framework/formats:image_frame_opencv",
@@ -842,6 +919,7 @@ cc_test(
         "//mediapipe/framework/port:gtest_main",
         "//mediapipe/framework/port:opencv_imgcodecs",
         "//mediapipe/util/sequence:media_sequence",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
         "@org_tensorflow//tensorflow/core:protos_all_cc",
@@ -857,7 +935,7 @@ cc_test(
         ":tensorflow_inference_calculator",
         ":tensorflow_session",
         ":tensorflow_session_from_frozen_graph_calculator",
-        "//mediapipe/calculators/tensorflow:tensorflow_session_from_frozen_graph_calculator_cc_proto",
+        ":tensorflow_session_from_frozen_graph_calculator_cc_proto",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:calculator_runner",
         "//mediapipe/framework:packet",
@@ -868,6 +946,7 @@ cc_test(
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:tag_map_helper",
         "//mediapipe/framework/tool:validate_type",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
         "@org_tensorflow//tensorflow/core:direct_session",
         "@org_tensorflow//tensorflow/core:framework",
@@ -898,6 +977,7 @@ cc_test(
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/tool:tag_map_helper",
         "//mediapipe/framework/tool:validate_type",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
         "@org_tensorflow//tensorflow/core:direct_session",
         "@org_tensorflow//tensorflow/core:framework",
@@ -926,9 +1006,11 @@ cc_test(
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/framework/tool:tag_map_helper",
         "//mediapipe/framework/tool:validate_type",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
         "@org_tensorflow//tensorflow/core:all_kernels",
         "@org_tensorflow//tensorflow/core:direct_session",
+        "@org_tensorflow//tensorflow/core:protos_all_cc",
     ],
 )
 
@@ -951,9 +1033,11 @@ cc_test(
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/framework/tool:tag_map_helper",
         "//mediapipe/framework/tool:validate_type",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
         "@org_tensorflow//tensorflow/core:all_kernels",
         "@org_tensorflow//tensorflow/core:direct_session",
+        "@org_tensorflow//tensorflow/core:protos_all_cc",
     ],
 )
 
@@ -1023,6 +1107,20 @@ cc_test(
 )
 
 cc_test(
+    name = "tensor_to_vector_string_calculator_test",
+    srcs = ["tensor_to_vector_string_calculator_test.cc"],
+    deps = [
+        ":tensor_to_vector_string_calculator",
+        ":tensor_to_vector_string_calculator_options_cc_proto",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:calculator_runner",
+        "//mediapipe/framework/port:gtest_main",
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:protos_all_cc",
+    ],
+)
+
+cc_test(
     name = "unpack_media_sequence_calculator_test",
     srcs = ["unpack_media_sequence_calculator_test.cc"],
     deps = [
@@ -1072,6 +1170,21 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "vector_string_to_tensor_calculator_test",
+    srcs = ["vector_string_to_tensor_calculator_test.cc"],
+    deps = [
+        ":vector_string_to_tensor_calculator",
+        ":vector_string_to_tensor_calculator_options_cc_proto",
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework:calculator_runner",
+        "//mediapipe/framework/port:gtest_main",
+        "@com_google_absl//absl/strings",
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:protos_all_cc",
+    ],
+)
+
 test_suite(
     name = "ios",
     tags = ["ios"],
@@ -1093,14 +1206,14 @@ cc_test(
         ":tensorflow_inference_calculator",
         ":tensorflow_session_from_frozen_graph_generator",
         ":tensorflow_session_from_frozen_graph_generator_cc_proto",
+        "@com_google_absl//absl/flags:flag",
         "//mediapipe/framework/deps:file_path",
+        "//mediapipe/framework/port:integral_types",
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:calculator_runner",
         "//mediapipe/framework/tool:sink",
         "//mediapipe/framework/tool:validate_type",
         "//mediapipe/framework/port:gtest_main",
-        "//mediapipe/framework/port:status",
-        "//mediapipe/framework/port:ret_check",
     ] + select({
         "//conditions:default": [
             "@org_tensorflow//tensorflow/core:testlib",

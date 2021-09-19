@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 cc_library(
     name = "asset_manager_util",
@@ -37,22 +37,10 @@ cc_library(
         "//mediapipe/util/android/file/base",
     ] + select({
         "//conditions:default": [],
-        "//mediapipe:android": [":jni_helper"],
+        "//mediapipe:android": [
+            "//mediapipe/java/com/google/mediapipe/framework/jni:jni_util",
+        ],
     }),
-)
-
-cc_library(
-    name = "jni_helper",
-    srcs = select({
-        "//conditions:default": [],
-        "//mediapipe:android": ["jni_helper.cc"],
-    }),
-    hdrs = select({
-        "//conditions:default": [],
-        "//mediapipe:android": ["jni_helper.h"],
-    }),
-    linkopts = ["-landroid"],
-    deps = [":logging"],
 )
 
 cc_library(

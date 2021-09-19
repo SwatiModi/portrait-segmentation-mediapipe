@@ -115,6 +115,12 @@ void AddMultiStreamCallback(
     std::function<void(const std::vector<Packet>&)> callback,
     CalculatorGraphConfig* config, std::pair<std::string, Packet>* side_packet);
 
+void AddMultiStreamCallback(
+    const std::vector<std::string>& streams,
+    std::function<void(const std::vector<Packet>&)> callback,
+    CalculatorGraphConfig* config, std::map<std::string, Packet>* side_packets,
+    bool observe_timestamp_bounds = false);
+
 // Add a CallbackWithHeaderCalculator to intercept packets sent on
 // stream stream_name, and the header packet on stream stream_header.
 // The input side packet with the produced name callback_side_packet_name
@@ -166,10 +172,10 @@ class CallbackCalculator : public CalculatorBase {
 
   ~CallbackCalculator() override {}
 
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
 
  private:
   std::function<void(const Packet&)> callback_;
@@ -185,10 +191,10 @@ class CallbackWithHeaderCalculator : public CalculatorBase {
 
   ~CallbackWithHeaderCalculator() override {}
 
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
 
  private:
   std::function<void(const Packet&, const Packet&)> callback_;

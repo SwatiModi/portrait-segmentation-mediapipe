@@ -41,11 +41,10 @@ class ImmediateInputStreamHandler : public InputStreamHandler {
 
  protected:
   // Reinitializes this InputStreamHandler before each CalculatorGraph run.
-  void PrepareForRun(
-      std::function<void()> headers_ready_callback,
-      std::function<void()> notification_callback,
-      std::function<void(CalculatorContext*)> schedule_callback,
-      std::function<void(::mediapipe::Status)> error_callback) override;
+  void PrepareForRun(std::function<void()> headers_ready_callback,
+                     std::function<void()> notification_callback,
+                     std::function<void(CalculatorContext*)> schedule_callback,
+                     std::function<void(absl::Status)> error_callback) override;
 
   // Returns kReadyForProcess whenever a Packet is available at any of
   // the input streams, or any input stream becomes done.
@@ -55,6 +54,9 @@ class ImmediateInputStreamHandler : public InputStreamHandler {
   // specified timestamp, leaving other input streams unaffected.
   void FillInputSet(Timestamp input_timestamp,
                     InputStreamShardSet* input_set) override;
+
+  // Returns the number of sync-sets maintained by this input-handler.
+  int SyncSetCount() override;
 
   absl::Mutex mutex_;
   // The packet-set builder for each input stream.
@@ -80,7 +82,7 @@ void ImmediateInputStreamHandler::PrepareForRun(
     std::function<void()> headers_ready_callback,
     std::function<void()> notification_callback,
     std::function<void(CalculatorContext*)> schedule_callback,
-    std::function<void(::mediapipe::Status)> error_callback) {
+    std::function<void(absl::Status)> error_callback) {
   {
     absl::MutexLock lock(&mutex_);
     for (int i = 0; i < sync_sets_.size(); ++i) {
@@ -167,6 +169,11 @@ void ImmediateInputStreamHandler::FillInputSet(Timestamp input_timestamp,
       sync_sets_[i].FillInputBounds(input_set);
     }
   }
+}
+
+int ImmediateInputStreamHandler::SyncSetCount() {
+  absl::MutexLock lock(&mutex_);
+  return sync_sets_.size();
 }
 
 }  // namespace mediapipe

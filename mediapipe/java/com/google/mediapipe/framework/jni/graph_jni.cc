@@ -15,6 +15,7 @@
 #include "mediapipe/java/com/google/mediapipe/framework/jni/graph_jni.h"
 
 #include <memory>
+#include <string>
 
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/port/canonical_errors.h"
@@ -23,15 +24,17 @@
 #include "mediapipe/java/com/google/mediapipe/framework/jni/graph.h"
 #include "mediapipe/java/com/google/mediapipe/framework/jni/jni_util.h"
 
+using mediapipe::android::JavaListToStdStringVector;
 using mediapipe::android::JStringToStdString;
+using mediapipe::android::ThrowIfError;
 
 namespace {
-mediapipe::Status AddSidePacketsIntoGraph(
-    mediapipe::android::Graph* mediapipe_graph, JNIEnv* env,
-    jobjectArray stream_names, jlongArray packets) {
+absl::Status AddSidePacketsIntoGraph(mediapipe::android::Graph* mediapipe_graph,
+                                     JNIEnv* env, jobjectArray stream_names,
+                                     jlongArray packets) {
   jsize num_side_packets = env->GetArrayLength(stream_names);
   if (num_side_packets != env->GetArrayLength(packets)) {
-    return mediapipe::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         "Number of streams and packets doesn't match!");
   }
   // Note, packets_array_ref is really a const jlong* but this clashes with the
@@ -46,16 +49,16 @@ mediapipe::Status AddSidePacketsIntoGraph(
     env->DeleteLocalRef(name);
   }
   env->ReleaseLongArrayElements(packets, packets_array_ref, JNI_ABORT);
-  return mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-mediapipe::Status AddStreamHeadersIntoGraph(
+absl::Status AddStreamHeadersIntoGraph(
     mediapipe::android::Graph* mediapipe_graph, JNIEnv* env,
     jobjectArray stream_names, jlongArray packets) {
   jsize num_headers = env->GetArrayLength(stream_names);
   if (num_headers != env->GetArrayLength(packets)) {
-    return mediapipe::Status(::mediapipe::StatusCode::kFailedPrecondition,
-                             "Number of streams and packets doesn't match!");
+    return absl::Status(absl::StatusCode::kFailedPrecondition,
+                        "Number of streams and packets doesn't match!");
   }
   jlong* packets_array_ref = env->GetLongArrayElements(packets, nullptr);
   for (jsize i = 0; i < num_headers; ++i) {
@@ -67,18 +70,9 @@ mediapipe::Status AddStreamHeadersIntoGraph(
     env->DeleteLocalRef(name);
   }
   env->ReleaseLongArrayElements(packets, packets_array_ref, JNI_ABORT);
-  return mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-// Throws a MediaPipeException for any non-ok mediapipe::Status.
-// Note that the exception is thrown after execution returns to Java.
-bool ThrowIfError(JNIEnv* env, mediapipe::Status status) {
-  if (!status.ok()) {
-    env->Throw(mediapipe::android::CreateMediaPipeException(env, status));
-    return true;
-  }
-  return false;
-}
 }  // namespace
 
 JNIEXPORT jlong JNICALL GRAPH_METHOD(nativeCreateGraph)(JNIEnv* env,
@@ -114,7 +108,7 @@ JNIEXPORT void JNICALL GRAPH_METHOD(nativeLoadBinaryGraphBytes)(
       reinterpret_cast<mediapipe::android::Graph*>(context);
   jbyte* data_ptr = env->GetByteArrayElements(data, nullptr);
   int size = env->GetArrayLength(data);
-  mediapipe::Status status =
+  absl::Status status =
       mediapipe_graph->LoadBinaryGraph(reinterpret_cast<char*>(data_ptr), size);
   env->ReleaseByteArrayElements(data, data_ptr, JNI_ABORT);
   ThrowIfError(env, status);
@@ -126,7 +120,7 @@ JNIEXPORT void JNICALL GRAPH_METHOD(nativeLoadBinaryGraphTemplate)(
       reinterpret_cast<mediapipe::android::Graph*>(context);
   jbyte* data_ptr = env->GetByteArrayElements(data, nullptr);
   int size = env->GetArrayLength(data);
-  mediapipe::Status status = mediapipe_graph->LoadBinaryGraphTemplate(
+  absl::Status status = mediapipe_graph->LoadBinaryGraphTemplate(
       reinterpret_cast<char*>(data_ptr), size);
   env->ReleaseByteArrayElements(data, data_ptr, JNI_ABORT);
   ThrowIfError(env, status);
@@ -153,7 +147,7 @@ JNIEXPORT void JNICALL GRAPH_METHOD(nativeSetGraphOptions)(JNIEnv* env,
       reinterpret_cast<mediapipe::android::Graph*>(context);
   jbyte* data_ptr = env->GetByteArrayElements(data, nullptr);
   int size = env->GetArrayLength(data);
-  mediapipe::Status status =
+  absl::Status status =
       mediapipe_graph->SetGraphOptions(reinterpret_cast<char*>(data_ptr), size);
   env->ReleaseByteArrayElements(data, data_ptr, JNI_ABORT);
   ThrowIfError(env, status);
@@ -187,12 +181,41 @@ GRAPH_METHOD(nativeAddPacketCallback)(JNIEnv* env, jobject thiz, jlong context,
   // be accessed later.
   jobject global_callback_ref = env->NewGlobalRef(callback);
   if (!global_callback_ref) {
-    ThrowIfError(
-        env, ::mediapipe::InternalError("Failed to allocate packet callback"));
+    ThrowIfError(env,
+                 absl::InternalError("Failed to allocate packet callback"));
     return;
   }
   ThrowIfError(env, mediapipe_graph->AddCallbackHandler(output_stream_name,
                                                         global_callback_ref));
+}
+
+JNIEXPORT void JNICALL GRAPH_METHOD(nativeAddMultiStreamCallback)(
+    JNIEnv* env, jobject thiz, jlong context, jobject stream_names,
+    jobject callback, jboolean observe_timestamp_bounds) {
+  mediapipe::android::Graph* mediapipe_graph =
+      reinterpret_cast<mediapipe::android::Graph*>(context);
+  std::vector<std::string> output_stream_names =
+      JavaListToStdStringVector(env, stream_names);
+  for (const std::string& s : output_stream_names) {
+    if (s.empty()) {
+      ThrowIfError(env,
+                   absl::InternalError("streamNames is not correctly parsed or "
+                                       "it contains empty std::string."));
+      return;
+    }
+  }
+
+  // Create a global reference to the callback object, so that it can
+  // be accessed later.
+  jobject global_callback_ref = env->NewGlobalRef(callback);
+  if (!global_callback_ref) {
+    ThrowIfError(env,
+                 absl::InternalError("Failed to allocate packets callback"));
+    return;
+  }
+  ThrowIfError(env, mediapipe_graph->AddMultiStreamCallbackHandler(
+                        output_stream_names, global_callback_ref,
+                        observe_timestamp_bounds));
 }
 
 JNIEXPORT jlong JNICALL GRAPH_METHOD(nativeAddSurfaceOutput)(

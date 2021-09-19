@@ -24,6 +24,9 @@
 
 namespace mediapipe {
 
+constexpr char kLetterboxPaddingTag[] = "LETTERBOX_PADDING";
+constexpr char kLandmarksTag[] = "LANDMARKS";
+
 NormalizedLandmark CreateLandmark(float x, float y) {
   NormalizedLandmark landmark;
   landmark.set_x(x);
@@ -32,12 +35,12 @@ NormalizedLandmark CreateLandmark(float x, float y) {
 }
 
 CalculatorGraphConfig::Node GetDefaultNode() {
-  return ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+  return ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
     calculator: "LandmarkLetterboxRemovalCalculator"
     input_stream: "LANDMARKS:landmarks"
     input_stream: "LETTERBOX_PADDING:letterbox_padding"
     output_stream: "LANDMARKS:adjusted_landmarks"
-  )");
+  )pb");
 }
 
 TEST(LandmarkLetterboxRemovalCalculatorTest, PaddingLeftRight) {
@@ -48,18 +51,19 @@ TEST(LandmarkLetterboxRemovalCalculatorTest, PaddingLeftRight) {
   *landmarks->add_landmark() = CreateLandmark(0.2f, 0.2f);
   *landmarks->add_landmark() = CreateLandmark(0.7f, 0.7f);
   runner.MutableInputs()
-      ->Tag("LANDMARKS")
+      ->Tag(kLandmarksTag)
       .packets.push_back(
           Adopt(landmarks.release()).At(Timestamp::PostStream()));
 
   auto padding = absl::make_unique<std::array<float, 4>>(
       std::array<float, 4>{0.2f, 0.f, 0.3f, 0.f});
   runner.MutableInputs()
-      ->Tag("LETTERBOX_PADDING")
+      ->Tag(kLetterboxPaddingTag)
       .packets.push_back(Adopt(padding.release()).At(Timestamp::PostStream()));
 
   MP_ASSERT_OK(runner.Run()) << "Calculator execution failed.";
-  const std::vector<Packet>& output = runner.Outputs().Tag("LANDMARKS").packets;
+  const std::vector<Packet>& output =
+      runner.Outputs().Tag(kLandmarksTag).packets;
   ASSERT_EQ(1, output.size());
   const auto& output_landmarks = output[0].Get<NormalizedLandmarkList>();
 
@@ -84,18 +88,19 @@ TEST(LandmarkLetterboxRemovalCalculatorTest, PaddingTopBottom) {
   landmark = landmarks->add_landmark();
   *landmark = CreateLandmark(0.7f, 0.7f);
   runner.MutableInputs()
-      ->Tag("LANDMARKS")
+      ->Tag(kLandmarksTag)
       .packets.push_back(
           Adopt(landmarks.release()).At(Timestamp::PostStream()));
 
   auto padding = absl::make_unique<std::array<float, 4>>(
       std::array<float, 4>{0.0f, 0.2f, 0.0f, 0.3f});
   runner.MutableInputs()
-      ->Tag("LETTERBOX_PADDING")
+      ->Tag(kLetterboxPaddingTag)
       .packets.push_back(Adopt(padding.release()).At(Timestamp::PostStream()));
 
   MP_ASSERT_OK(runner.Run()) << "Calculator execution failed.";
-  const std::vector<Packet>& output = runner.Outputs().Tag("LANDMARKS").packets;
+  const std::vector<Packet>& output =
+      runner.Outputs().Tag(kLandmarksTag).packets;
   ASSERT_EQ(1, output.size());
   const auto& output_landmarks = output[0].Get<NormalizedLandmarkList>();
 

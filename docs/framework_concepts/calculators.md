@@ -67,26 +67,26 @@ class CalculatorBase {
 
   // The subclasses of CalculatorBase must implement GetContract.
   // ...
-  static ::MediaPipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
   // Open is called before any Process() calls, on a freshly constructed
   // calculator.  Subclasses may override this method to perform necessary
   // setup, and possibly output Packets and/or set output streams' headers.
   // ...
-  virtual ::MediaPipe::Status Open(CalculatorContext* cc) {
-    return ::MediaPipe::OkStatus();
+  virtual absl::Status Open(CalculatorContext* cc) {
+    return absl::OkStatus();
   }
 
   // Processes the incoming inputs. May call the methods on cc to access
   // inputs and produce outputs.
   // ...
-  virtual ::MediaPipe::Status Process(CalculatorContext* cc) = 0;
+  virtual absl::Status Process(CalculatorContext* cc) = 0;
 
   // Is called if Open() was called and succeeded.  Is called either
   // immediately after processing is complete or after a graph run has ended
   // (if an error occurred in the graph).  ...
-  virtual ::MediaPipe::Status Close(CalculatorContext* cc) {
-    return ::MediaPipe::OkStatus();
+  virtual absl::Status Close(CalculatorContext* cc) {
+    return absl::OkStatus();
   }
 
   ...
@@ -187,7 +187,7 @@ node {
 ```
 
 In the calculator implementation, inputs and outputs are also identified by tag
-name and index number. In the function below input are output are identified:
+name and index number. In the function below input and output are identified:
 
 *   By index number: The combined input stream is identified simply by index
     `0`.
@@ -199,7 +199,7 @@ name and index number. In the function below input are output are identified:
 // c++ Code snippet describing the SomeAudioVideoCalculator GetContract() method
 class SomeAudioVideoCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     cc->Inputs().Index(0).SetAny();
     // SetAny() is used to specify that whatever the type of the
     // stream is, it's acceptable.  This does not mean that any
@@ -207,15 +207,15 @@ class SomeAudioVideoCalculator : public CalculatorBase {
     // particular type.  SetAny() has the same effect as explicitly
     // setting the type to be the stream's type.
     cc->Outputs().Tag("VIDEO").Set<ImageFrame>();
-    cc->Outputs().Get("AUDIO", 0).Set<Matrix>;
-    cc->Outputs().Get("AUDIO", 1).Set<Matrix>;
-    return ::mediapipe::OkStatus();
+    cc->Outputs().Get("AUDIO", 0).Set<Matrix>();
+    cc->Outputs().Get("AUDIO", 1).Set<Matrix>();
+    return absl::OkStatus();
   }
 ```
 
 ## Processing
 
-`Process()` called on a non-source node must return `::mediapipe::OkStatus()` to
+`Process()` called on a non-source node must return `absl::OkStatus()` to
 indicate that all went well, or any other status code to signal an error
 
 If a non-source calculator returns `tool::StatusStop()`, then this signals the
@@ -224,12 +224,12 @@ input streams will be closed (and remaining Packets will propagate through the
 graph).
 
 A source node in a graph will continue to have `Process()` called on it as long
-as it returns `::mediapipe::OkStatus(`). To indicate that there is no more data
-to be generated return `tool::StatusStop()`. Any other status indicates an error
-has occurred.
+as it returns `absl::OkStatus(`). To indicate that there is no more data to be
+generated return `tool::StatusStop()`. Any other status indicates an error has
+occurred.
 
-`Close()` returns `::mediapipe::OkStatus()` to indicate success. Any other
-status indicates a failure.
+`Close()` returns `absl::OkStatus()` to indicate success. Any other status
+indicates a failure.
 
 Here is the basic `Process()` function. It uses the `Input()` method (which can
 be used only if the calculator has a single input) to request its input data. It
@@ -238,22 +238,80 @@ and does the calculations. When done it releases the pointer when adding it to
 the output stream.
 
 ```c++
-::util::Status MyCalculator::Process() {
+absl::Status MyCalculator::Process() {
   const Matrix& input = Input()->Get<Matrix>();
   std::unique_ptr<Matrix> output(new Matrix(input.rows(), input.cols()));
   // do your magic here....
   //    output->row(n) =  ...
   Output()->Add(output.release(), InputTimestamp());
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 ```
+
+## Calculator options
+
+Calculators accept processing parameters through (1) input stream packets (2)
+input side packets, and (3) calculator options. Calculator options, if
+specified, appear as literal values in the `node_options` field of the
+`CalculatorGraphConfiguration.Node` message.
+
+```
+  node {
+    calculator: "TfLiteInferenceCalculator"
+    input_stream: "TENSORS:main_model_input"
+    output_stream: "TENSORS:main_model_output"
+    node_options: {
+      [type.googleapis.com/mediapipe.TfLiteInferenceCalculatorOptions] {
+        model_path: "mediapipe/models/detection_model.tflite"
+      }
+    }
+  }
+```
+
+The `node_options` field accepts the proto3 syntax.  Alternatively, calculator
+options can be specified in the `options` field using proto2 syntax.
+
+```
+  node {
+    calculator: "TfLiteInferenceCalculator"
+    input_stream: "TENSORS:main_model_input"
+    output_stream: "TENSORS:main_model_output"
+    node_options: {
+      [type.googleapis.com/mediapipe.TfLiteInferenceCalculatorOptions] {
+        model_path: "mediapipe/models/detection_model.tflite"
+      }
+    }
+  }
+```
+
+Not all calculators accept calcuator options. In order to accept options, a
+calculator will normally define a new protobuf message type to represent its
+options, such as `PacketClonerCalculatorOptions`. The calculator will then
+read that protobuf message in its `CalculatorBase::Open` method, and possibly
+also in its `CalculatorBase::GetContract` function or its
+`CalculatorBase::Process` method. Normally, the new protobuf message type will
+be defined as a protobuf schema using a ".proto" file and a
+`mediapipe_proto_library()` build rule.
+
+```
+  mediapipe_proto_library(
+      name = "packet_cloner_calculator_proto",
+      srcs = ["packet_cloner_calculator.proto"],
+      visibility = ["//visibility:public"],
+      deps = [
+          "//mediapipe/framework:calculator_options_proto",
+          "//mediapipe/framework:calculator_proto",
+      ],
+  )
+```
+
 
 ## Example calculator
 
 This section discusses the implementation of `PacketClonerCalculator`, which
 does a relatively simple job, and is used in many calculator graphs.
-`PacketClonerCalculator` simply produces a copy of its most recent input
-packets on demand.
+`PacketClonerCalculator` simply produces a copy of its most recent input packets
+on demand.
 
 `PacketClonerCalculator` is useful when the timestamps of arriving data packets
 are not aligned perfectly. Suppose we have a room with a microphone, light
@@ -279,8 +337,8 @@ input streams:
     imageframe of video data representing video collected from camera in the
     room with timestamp.
 
-Below is the implementation of the `PacketClonerCalculator`.  You can see
-the `GetContract()`, `Open()`, and `Process()` methods as well as the instance
+Below is the implementation of the `PacketClonerCalculator`. You can see the
+`GetContract()`, `Open()`, and `Process()` methods as well as the instance
 variable `current_` which holds the most recent input packets.
 
 ```c++
@@ -312,7 +370,7 @@ namespace mediapipe {
 //
 class PacketClonerCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
+  static absl::Status GetContract(CalculatorContract* cc) {
     const int tick_signal_index = cc->Inputs().NumEntries() - 1;
     // cc->Inputs().NumEntries() returns the number of input streams
     // for the PacketClonerCalculator
@@ -322,10 +380,10 @@ class PacketClonerCalculator : public CalculatorBase {
       cc->Outputs().Index(i).SetSameAs(&cc->Inputs().Index(i));
     }
     cc->Inputs().Index(tick_signal_index).SetAny();
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
+  absl::Status Open(CalculatorContext* cc) final {
     tick_signal_index_ = cc->Inputs().NumEntries() - 1;
     current_.resize(tick_signal_index_);
     // Pass along the header for each stream if present.
@@ -336,10 +394,10 @@ class PacketClonerCalculator : public CalculatorBase {
         // the header for the input stream of index i
       }
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
+  absl::Status Process(CalculatorContext* cc) final {
     // Store input signals.
     for (int i = 0; i < tick_signal_index_; ++i) {
       if (!cc->Inputs().Index(i).Value().IsEmpty()) {
@@ -355,7 +413,6 @@ class PacketClonerCalculator : public CalculatorBase {
               current_[i].At(cc->InputTimestamp()));
           // Add a packet to output stream of index i a packet from inputstream i
           // with timestamp common to all present inputs
-          //
         } else {
           cc->Outputs().Index(i).SetNextTimestampBound(
               cc->InputTimestamp().NextAllowedInStream());
@@ -364,7 +421,7 @@ class PacketClonerCalculator : public CalculatorBase {
         }
       }
     }
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
 
  private:
@@ -382,7 +439,7 @@ defined your calculator class, register it with a macro invocation
 REGISTER_CALCULATOR(calculator_class_name).
 
 Below is a trivial MediaPipe graph that has 3 input streams, 1 node
-(PacketClonerCalculator) and 3 output streams.
+(PacketClonerCalculator) and 2 output streams.
 
 ```proto
 input_stream: "room_mic_signal"
@@ -400,13 +457,8 @@ node {
 ```
 
 The diagram below shows how the `PacketClonerCalculator` defines its output
-packets based on its series of input packets.
+packets (bottom) based on its series of input packets (top).
 
-| ![Graph using                                                                |
-: PacketClonerCalculator](../images/packet_cloner_calculator.png)              :
-| :--------------------------------------------------------------------------: |
-| *Each time it receives a packet on its TICK input stream, the                |
-: PacketClonerCalculator outputs the most recent packet from each of its input :
-: streams. The sequence of output packets is determined by the sequene of      :
-: input packets and their timestamps. The timestamps are shows along the right :
-: side of the diagram.*                                                        :
+![Graph using PacketClonerCalculator](../images/packet_cloner_calculator.png)  |
+:--------------------------------------------------------------------------: |
+*Each time it receives a packet on its TICK input stream, the PacketClonerCalculator outputs the most recent packet from each of its input streams. The sequence of output packets (bottom) is determined by the sequence of input packets (top) and their timestamps. The timestamps are shown along the right side of the diagram.* |

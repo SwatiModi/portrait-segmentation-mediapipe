@@ -18,6 +18,10 @@
 
 namespace mediapipe {
 
+constexpr char kFloatsTag[] = "FLOATS";
+constexpr char kFloatTag[] = "FLOAT";
+constexpr char kTensorsTag[] = "TENSORS";
+
 // A calculator for converting TFLite tensors to to a float or a float vector.
 //
 // Input:
@@ -38,43 +42,42 @@ namespace mediapipe {
 // }
 class TfLiteTensorsToFloatsCalculator : public CalculatorBase {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc);
+  static absl::Status GetContract(CalculatorContract* cc);
 
-  ::mediapipe::Status Open(CalculatorContext* cc) override;
+  absl::Status Open(CalculatorContext* cc) override;
 
-  ::mediapipe::Status Process(CalculatorContext* cc) override;
+  absl::Status Process(CalculatorContext* cc) override;
 };
 REGISTER_CALCULATOR(TfLiteTensorsToFloatsCalculator);
 
-::mediapipe::Status TfLiteTensorsToFloatsCalculator::GetContract(
+absl::Status TfLiteTensorsToFloatsCalculator::GetContract(
     CalculatorContract* cc) {
-  RET_CHECK(cc->Inputs().HasTag("TENSORS"));
-  RET_CHECK(cc->Outputs().HasTag("FLOATS") || cc->Outputs().HasTag("FLOAT"));
+  RET_CHECK(cc->Inputs().HasTag(kTensorsTag));
+  RET_CHECK(cc->Outputs().HasTag(kFloatsTag) ||
+            cc->Outputs().HasTag(kFloatTag));
 
-  cc->Inputs().Tag("TENSORS").Set<std::vector<TfLiteTensor>>();
-  if (cc->Outputs().HasTag("FLOATS")) {
-    cc->Outputs().Tag("FLOATS").Set<std::vector<float>>();
+  cc->Inputs().Tag(kTensorsTag).Set<std::vector<TfLiteTensor>>();
+  if (cc->Outputs().HasTag(kFloatsTag)) {
+    cc->Outputs().Tag(kFloatsTag).Set<std::vector<float>>();
   }
-  if (cc->Outputs().HasTag("FLOAT")) {
-    cc->Outputs().Tag("FLOAT").Set<float>();
+  if (cc->Outputs().HasTag(kFloatTag)) {
+    cc->Outputs().Tag(kFloatTag).Set<float>();
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TfLiteTensorsToFloatsCalculator::Open(
-    CalculatorContext* cc) {
+absl::Status TfLiteTensorsToFloatsCalculator::Open(CalculatorContext* cc) {
   cc->SetOffset(TimestampDiff(0));
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-::mediapipe::Status TfLiteTensorsToFloatsCalculator::Process(
-    CalculatorContext* cc) {
-  RET_CHECK(!cc->Inputs().Tag("TENSORS").IsEmpty());
+absl::Status TfLiteTensorsToFloatsCalculator::Process(CalculatorContext* cc) {
+  RET_CHECK(!cc->Inputs().Tag(kTensorsTag).IsEmpty());
 
   const auto& input_tensors =
-      cc->Inputs().Tag("TENSORS").Get<std::vector<TfLiteTensor>>();
+      cc->Inputs().Tag(kTensorsTag).Get<std::vector<TfLiteTensor>>();
   // TODO: Add option to specify which tensor to take from.
   const TfLiteTensor* raw_tensor = &input_tensors[0];
   const float* raw_floats = raw_tensor->data.f;
@@ -84,20 +87,21 @@ REGISTER_CALCULATOR(TfLiteTensorsToFloatsCalculator);
     num_values *= raw_tensor->dims->data[i];
   }
 
-  if (cc->Outputs().HasTag("FLOAT")) {
+  if (cc->Outputs().HasTag(kFloatTag)) {
     // TODO: Could add an index in the option to specifiy returning one
     // value of a float array.
     RET_CHECK_EQ(num_values, 1);
-    cc->Outputs().Tag("FLOAT").AddPacket(
+    cc->Outputs().Tag(kFloatTag).AddPacket(
         MakePacket<float>(raw_floats[0]).At(cc->InputTimestamp()));
   }
-  if (cc->Outputs().HasTag("FLOATS")) {
+  if (cc->Outputs().HasTag(kFloatsTag)) {
     auto output_floats = absl::make_unique<std::vector<float>>(
         raw_floats, raw_floats + num_values);
-    cc->Outputs().Tag("FLOATS").Add(output_floats.release(),
-                                    cc->InputTimestamp());
+    cc->Outputs()
+        .Tag(kFloatsTag)
+        .Add(output_floats.release(), cc->InputTimestamp());
   }
 
-  return ::mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 }  // namespace mediapipe

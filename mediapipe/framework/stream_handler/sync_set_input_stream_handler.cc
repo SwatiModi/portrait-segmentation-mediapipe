@@ -44,11 +44,10 @@ class SyncSetInputStreamHandler : public InputStreamHandler {
                             const MediaPipeOptions& extendable_options,
                             bool calculator_run_in_parallel);
 
-  void PrepareForRun(
-      std::function<void()> headers_ready_callback,
-      std::function<void()> notification_callback,
-      std::function<void(CalculatorContext*)> schedule_callback,
-      std::function<void(::mediapipe::Status)> error_callback) override;
+  void PrepareForRun(std::function<void()> headers_ready_callback,
+                     std::function<void()> notification_callback,
+                     std::function<void(CalculatorContext*)> schedule_callback,
+                     std::function<void(absl::Status)> error_callback) override;
 
  protected:
   // In SyncSetInputStreamHandler, a node is "ready" if any
@@ -66,6 +65,9 @@ class SyncSetInputStreamHandler : public InputStreamHandler {
   void FillInputBounds(Timestamp input_timestamp,
                        InputStreamShardSet* input_set)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
+  // Returns the number of sync-sets maintained by this input-handler.
+  int SyncSetCount() override;
 
  private:
   absl::Mutex mutex_;
@@ -91,7 +93,7 @@ void SyncSetInputStreamHandler::PrepareForRun(
     std::function<void()> headers_ready_callback,
     std::function<void()> notification_callback,
     std::function<void(CalculatorContext*)> schedule_callback,
-    std::function<void(::mediapipe::Status)> error_callback) {
+    std::function<void(absl::Status)> error_callback) {
   const auto& handler_options =
       options_.GetExtension(SyncSetInputStreamHandlerOptions::ext);
   {
@@ -107,7 +109,7 @@ void SyncSetInputStreamHandler::PrepareForRun(
         MEDIAPIPE_CHECK_OK(tool::ParseTagIndex(tag_index, &tag, &index));
         CollectionItemId id = input_stream_managers_.GetId(tag, index);
         CHECK(id.IsValid()) << "stream \"" << tag_index << "\" is not found.";
-        CHECK(!::mediapipe::ContainsKey(used_ids, id))
+        CHECK(!mediapipe::ContainsKey(used_ids, id))
             << "stream \"" << tag_index << "\" is in more than one sync set.";
         used_ids.insert(id);
         stream_ids.push_back(id);
@@ -117,7 +119,7 @@ void SyncSetInputStreamHandler::PrepareForRun(
     std::vector<CollectionItemId> remaining_ids;
     for (CollectionItemId id = input_stream_managers_.BeginId();
          id < input_stream_managers_.EndId(); ++id) {
-      if (!::mediapipe::ContainsKey(used_ids, id)) {
+      if (!mediapipe::ContainsKey(used_ids, id)) {
         remaining_ids.push_back(id);
       }
     }
@@ -192,6 +194,11 @@ void SyncSetInputStreamHandler::FillInputSet(Timestamp input_timestamp,
   }
   ready_sync_set_index_ = -1;
   ready_timestamp_ = Timestamp::Done();
+}
+
+int SyncSetInputStreamHandler::SyncSetCount() {
+  absl::MutexLock lock(&mutex_);
+  return sync_sets_.size();
 }
 
 }  // namespace mediapipe

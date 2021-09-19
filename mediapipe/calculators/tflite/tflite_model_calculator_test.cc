@@ -28,7 +28,7 @@ TEST(TfLiteModelCalculatorTest, SmokeTest) {
   // Prepare single calculator graph to and wait for packets.
   CalculatorGraphConfig graph_config = ParseTextProtoOrDie<
       CalculatorGraphConfig>(
-      R"(
+      R"pb(
         node {
           calculator: "ConstantSidePacketCalculator"
           output_side_packet: "PACKET:model_path"
@@ -52,13 +52,13 @@ TEST(TfLiteModelCalculatorTest, SmokeTest) {
           input_side_packet: "MODEL_BLOB:model_blob"
           output_side_packet: "MODEL:model"
         }
-      )");
+      )pb");
   CalculatorGraph graph(graph_config);
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.WaitUntilIdle());
   auto status_or_packet = graph.GetOutputSidePacket("model");
   MP_ASSERT_OK(status_or_packet);
-  auto model_packet = status_or_packet.ValueOrDie();
+  auto model_packet = status_or_packet.value();
   const auto& model = model_packet.Get<
       std::unique_ptr<tflite::FlatBufferModel,
                       std::function<void(tflite::FlatBufferModel*)>>>();

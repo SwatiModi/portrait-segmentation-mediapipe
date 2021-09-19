@@ -40,7 +40,7 @@ void DoTestSingleSidePacket(absl::string_view packet_spec,
         }
       )";
   CalculatorGraphConfig graph_config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(
           absl::Substitute(graph_config_template, packet_spec));
   CalculatorGraph graph;
   MP_ASSERT_OK(graph.Initialize(graph_config));
@@ -49,7 +49,7 @@ void DoTestSingleSidePacket(absl::string_view packet_spec,
 
   MP_ASSERT_OK(graph.GetOutputSidePacket("packet"));
   auto actual_value =
-      graph.GetOutputSidePacket("packet").ValueOrDie().template Get<T>();
+      graph.GetOutputSidePacket("packet").value().template Get<T>();
   EXPECT_EQ(actual_value, expected_value);
 }
 
@@ -62,7 +62,7 @@ TEST(ConstantSidePacketCalculatorTest, EveryPossibleType) {
 
 TEST(ConstantSidePacketCalculatorTest, MultiplePackets) {
   CalculatorGraphConfig graph_config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         node {
           calculator: "ConstantSidePacketCalculator"
           output_side_packet: "PACKET:0:int_packet"
@@ -82,40 +82,36 @@ TEST(ConstantSidePacketCalculatorTest, MultiplePackets) {
             }
           }
         }
-      )");
+      )pb");
   CalculatorGraph graph;
   MP_ASSERT_OK(graph.Initialize(graph_config));
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.WaitUntilIdle());
 
   MP_ASSERT_OK(graph.GetOutputSidePacket("int_packet"));
-  EXPECT_EQ(graph.GetOutputSidePacket("int_packet").ValueOrDie().Get<int>(),
-            256);
+  EXPECT_EQ(graph.GetOutputSidePacket("int_packet").value().Get<int>(), 256);
   MP_ASSERT_OK(graph.GetOutputSidePacket("float_packet"));
-  EXPECT_EQ(graph.GetOutputSidePacket("float_packet").ValueOrDie().Get<float>(),
+  EXPECT_EQ(graph.GetOutputSidePacket("float_packet").value().Get<float>(),
             0.5f);
   MP_ASSERT_OK(graph.GetOutputSidePacket("bool_packet"));
-  EXPECT_FALSE(
-      graph.GetOutputSidePacket("bool_packet").ValueOrDie().Get<bool>());
+  EXPECT_FALSE(graph.GetOutputSidePacket("bool_packet").value().Get<bool>());
   MP_ASSERT_OK(graph.GetOutputSidePacket("string_packet"));
-  EXPECT_EQ(graph.GetOutputSidePacket("string_packet")
-                .ValueOrDie()
-                .Get<std::string>(),
-            "string");
+  EXPECT_EQ(
+      graph.GetOutputSidePacket("string_packet").value().Get<std::string>(),
+      "string");
   MP_ASSERT_OK(graph.GetOutputSidePacket("another_string_packet"));
   EXPECT_EQ(graph.GetOutputSidePacket("another_string_packet")
-                .ValueOrDie()
+                .value()
                 .Get<std::string>(),
             "another string");
   MP_ASSERT_OK(graph.GetOutputSidePacket("another_int_packet"));
-  EXPECT_EQ(
-      graph.GetOutputSidePacket("another_int_packet").ValueOrDie().Get<int>(),
-      128);
+  EXPECT_EQ(graph.GetOutputSidePacket("another_int_packet").value().Get<int>(),
+            128);
 }
 
 TEST(ConstantSidePacketCalculatorTest, ProcessingPacketsWithCorrectTagOnly) {
   CalculatorGraphConfig graph_config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         node {
           calculator: "ConstantSidePacketCalculator"
           output_side_packet: "PACKET:0:int_packet"
@@ -135,31 +131,28 @@ TEST(ConstantSidePacketCalculatorTest, ProcessingPacketsWithCorrectTagOnly) {
             }
           }
         }
-      )");
+      )pb");
   CalculatorGraph graph;
   MP_ASSERT_OK(graph.Initialize(graph_config));
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.WaitUntilIdle());
 
   MP_ASSERT_OK(graph.GetOutputSidePacket("int_packet"));
-  EXPECT_EQ(graph.GetOutputSidePacket("int_packet").ValueOrDie().Get<int>(),
-            256);
+  EXPECT_EQ(graph.GetOutputSidePacket("int_packet").value().Get<int>(), 256);
   MP_ASSERT_OK(graph.GetOutputSidePacket("float_packet"));
-  EXPECT_EQ(graph.GetOutputSidePacket("float_packet").ValueOrDie().Get<float>(),
+  EXPECT_EQ(graph.GetOutputSidePacket("float_packet").value().Get<float>(),
             0.5f);
   MP_ASSERT_OK(graph.GetOutputSidePacket("bool_packet"));
-  EXPECT_FALSE(
-      graph.GetOutputSidePacket("bool_packet").ValueOrDie().Get<bool>());
+  EXPECT_FALSE(graph.GetOutputSidePacket("bool_packet").value().Get<bool>());
   MP_ASSERT_OK(graph.GetOutputSidePacket("string_packet"));
-  EXPECT_EQ(graph.GetOutputSidePacket("string_packet")
-                .ValueOrDie()
-                .Get<std::string>(),
-            "string");
+  EXPECT_EQ(
+      graph.GetOutputSidePacket("string_packet").value().Get<std::string>(),
+      "string");
 }
 
 TEST(ConstantSidePacketCalculatorTest, IncorrectConfig_MoreOptionsThanPackets) {
   CalculatorGraphConfig graph_config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         node {
           calculator: "ConstantSidePacketCalculator"
           output_side_packet: "PACKET:int_packet"
@@ -170,14 +163,14 @@ TEST(ConstantSidePacketCalculatorTest, IncorrectConfig_MoreOptionsThanPackets) {
             }
           }
         }
-      )");
+      )pb");
   CalculatorGraph graph;
   EXPECT_FALSE(graph.Initialize(graph_config).ok());
 }
 
 TEST(ConstantSidePacketCalculatorTest, IncorrectConfig_MorePacketsThanOptions) {
   CalculatorGraphConfig graph_config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(R"pb(
         node {
           calculator: "ConstantSidePacketCalculator"
           output_side_packet: "PACKET:0:int_packet"
@@ -188,7 +181,7 @@ TEST(ConstantSidePacketCalculatorTest, IncorrectConfig_MorePacketsThanOptions) {
             }
           }
         }
-      )");
+      )pb");
   CalculatorGraph graph;
   EXPECT_FALSE(graph.Initialize(graph_config).ok());
 }

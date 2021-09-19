@@ -1,4 +1,4 @@
-// Copyright 2019 The MediaPipe Authors.
+// Copyright 2019-2020 The MediaPipe Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,8 +22,26 @@ namespace mediapipe {
 
 namespace {
 
+constexpr char kDisallowTag[] = "DISALLOW";
+constexpr char kAllowTag[] = "ALLOW";
+
 class GateCalculatorTest : public ::testing::Test {
  protected:
+  // Helper to run a graph and return status.
+  static absl::Status RunGraph(const std::string& proto) {
+    auto runner = absl::make_unique<CalculatorRunner>(
+        ParseTextProtoOrDie<CalculatorGraphConfig::Node>(proto));
+    return runner->Run();
+  }
+
+  // Use this when ALLOW/DISALLOW input is provided as a side packet.
+  void RunTimeStep(int64 timestamp, bool stream_payload) {
+    runner_->MutableInputs()->Get("", 0).packets.push_back(
+        MakePacket<bool>(stream_payload).At(Timestamp(timestamp)));
+    MP_ASSERT_OK(runner_->Run()) << "Calculator execution failed.";
+  }
+
+  // Use this when ALLOW/DISALLOW input is provided as an input stream.
   void RunTimeStep(int64 timestamp, const std::string& control_tag,
                    bool control) {
     runner_->MutableInputs()->Get("", 0).packets.push_back(
@@ -31,7 +49,6 @@ class GateCalculatorTest : public ::testing::Test {
     runner_->MutableInputs()
         ->Tag(control_tag)
         .packets.push_back(MakePacket<bool>(control).At(Timestamp(timestamp)));
-
     MP_ASSERT_OK(runner_->Run()) << "Calculator execution failed.";
   }
 
@@ -45,6 +62,198 @@ class GateCalculatorTest : public ::testing::Test {
  private:
   std::unique_ptr<CalculatorRunner> runner_;
 };
+
+TEST_F(GateCalculatorTest, InvalidInputs) {
+  EXPECT_TRUE(absl::IsInternal(GateCalculatorTest::RunGraph(R"(
+        calculator: "GateCalculator"
+        input_stream: "test_input"
+        input_stream: "ALLOW:gating_stream"
+        input_stream: "DISALLOW:gating_stream"
+        output_stream: "test_output"
+  )")));
+
+  EXPECT_TRUE(absl::IsInternal(GateCalculatorTest::RunGraph(R"(
+        calculator: "GateCalculator"
+        input_stream: "test_input"
+        input_side_packet: "ALLOW:gating_stream"
+        input_side_packet: "DISALLOW:gating_stream"
+        output_stream: "test_output"
+  )")));
+
+  EXPECT_TRUE(absl::IsInternal(GateCalculatorTest::RunGraph(R"(
+        calculator: "GateCalculator"
+        input_stream: "test_input"
+        input_stream: "ALLOW:gating_stream"
+        input_side_packet: "ALLOW:gating_stream"
+        output_stream: "test_output"
+  )")));
+
+  EXPECT_TRUE(absl::IsInternal(GateCalculatorTest::RunGraph(R"(
+        calculator: "GateCalculator"
+        input_stream: "test_input"
+        input_stream: "DISALLOW:gating_stream"
+        input_side_packet: "DISALLOW:gating_stream"
+        output_stream: "test_output"
+  )")));
+
+  EXPECT_TRUE(absl::IsInternal(GateCalculatorTest::RunGraph(R"(
+        calculator: "GateCalculator"
+        input_stream: "test_input"
+        input_stream: "ALLOW:gating_stream"
+        input_side_packet: "DISALLOW:gating_stream"
+        output_stream: "test_output"
+  )")));
+
+  EXPECT_TRUE(absl::IsInternal(GateCalculatorTest::RunGraph(R"(
+        calculator: "GateCalculator"
+        input_stream: "test_input"
+        input_stream: "DISALLOW:gating_stream"
+        input_side_packet: "ALLOW:gating_stream"
+        output_stream: "test_output"
+  )")));
+}
+
+TEST_F(GateCalculatorTest, AllowByALLOWOptionToTrue) {
+  SetRunner(R"(
+        calculator: "GateCalculator"
+        input_stream: "test_input"
+        output_stream: "test_output"
+        options: {
+          [mediapipe.GateCalculatorOptions.ext] {
+            allow: true
+          }
+        }
+  )");
+
+  constexpr int64 kTimestampValue0 = 42;
+  RunTimeStep(kTimestampValue0, true);
+  constexpr int64 kTimestampValue1 = 43;
+  RunTimeStep(kTimestampValue1, false);
+
+  const std::vector<Packet>& output = runner()->Outputs().Get("", 0).packets;
+  ASSERT_EQ(2, output.size());
+  EXPECT_EQ(kTimestampValue0, output[0].Timestamp().Value());
+  EXPECT_EQ(kTimestampValue1, output[1].Timestamp().Value());
+  EXPECT_EQ(true, output[0].Get<bool>());
+  EXPECT_EQ(false, output[1].Get<bool>());
+}
+
+TEST_F(GateCalculatorTest, DisallowByALLOWOptionSetToFalse) {
+  SetRunner(R"(
+        calculator: "GateCalculator"
+        input_stream: "test_input"
+        output_stream: "test_output"
+        options: {
+          [mediapipe.GateCalculatorOptions.ext] {
+            allow: false
+          }
+        }
+  )");
+
+  constexpr int64 kTimestampValue0 = 42;
+  RunTimeStep(kTimestampValue0, true);
+  constexpr int64 kTimestampValue1 = 43;
+  RunTimeStep(kTimestampValue1, false);
+
+  const std::vector<Packet>& output = runner()->Outputs().Get("", 0).packets;
+  ASSERT_EQ(0, output.size());
+}
+
+TEST_F(GateCalculatorTest, DisallowByALLOWOptionNotSet) {
+  SetRunner(R"(
+        calculator: "GateCalculator"
+        input_stream: "test_input"
+        output_stream: "test_output"
+  )");
+
+  constexpr int64 kTimestampValue0 = 42;
+  RunTimeStep(kTimestampValue0, true);
+  constexpr int64 kTimestampValue1 = 43;
+  RunTimeStep(kTimestampValue1, false);
+
+  const std::vector<Packet>& output = runner()->Outputs().Get("", 0).packets;
+  ASSERT_EQ(0, output.size());
+}
+
+TEST_F(GateCalculatorTest, AllowByALLOWSidePacketSetToTrue) {
+  SetRunner(R"(
+        calculator: "GateCalculator"
+        input_side_packet: "ALLOW:gating_stream"
+        input_stream: "test_input"
+        output_stream: "test_output"
+  )");
+  runner()->MutableSidePackets()->Tag(kAllowTag) = Adopt(new bool(true));
+
+  constexpr int64 kTimestampValue0 = 42;
+  RunTimeStep(kTimestampValue0, true);
+  constexpr int64 kTimestampValue1 = 43;
+  RunTimeStep(kTimestampValue1, false);
+
+  const std::vector<Packet>& output = runner()->Outputs().Get("", 0).packets;
+  ASSERT_EQ(2, output.size());
+  EXPECT_EQ(kTimestampValue0, output[0].Timestamp().Value());
+  EXPECT_EQ(kTimestampValue1, output[1].Timestamp().Value());
+  EXPECT_EQ(true, output[0].Get<bool>());
+  EXPECT_EQ(false, output[1].Get<bool>());
+}
+
+TEST_F(GateCalculatorTest, AllowByDisallowSidePacketSetToFalse) {
+  SetRunner(R"(
+        calculator: "GateCalculator"
+        input_side_packet: "DISALLOW:gating_stream"
+        input_stream: "test_input"
+        output_stream: "test_output"
+  )");
+  runner()->MutableSidePackets()->Tag(kDisallowTag) = Adopt(new bool(false));
+
+  constexpr int64 kTimestampValue0 = 42;
+  RunTimeStep(kTimestampValue0, true);
+  constexpr int64 kTimestampValue1 = 43;
+  RunTimeStep(kTimestampValue1, false);
+
+  const std::vector<Packet>& output = runner()->Outputs().Get("", 0).packets;
+  ASSERT_EQ(2, output.size());
+  EXPECT_EQ(kTimestampValue0, output[0].Timestamp().Value());
+  EXPECT_EQ(kTimestampValue1, output[1].Timestamp().Value());
+  EXPECT_EQ(true, output[0].Get<bool>());
+  EXPECT_EQ(false, output[1].Get<bool>());
+}
+
+TEST_F(GateCalculatorTest, DisallowByALLOWSidePacketSetToFalse) {
+  SetRunner(R"(
+        calculator: "GateCalculator"
+        input_side_packet: "ALLOW:gating_stream"
+        input_stream: "test_input"
+        output_stream: "test_output"
+  )");
+  runner()->MutableSidePackets()->Tag(kAllowTag) = Adopt(new bool(false));
+
+  constexpr int64 kTimestampValue0 = 42;
+  RunTimeStep(kTimestampValue0, true);
+  constexpr int64 kTimestampValue1 = 43;
+  RunTimeStep(kTimestampValue1, false);
+
+  const std::vector<Packet>& output = runner()->Outputs().Get("", 0).packets;
+  ASSERT_EQ(0, output.size());
+}
+
+TEST_F(GateCalculatorTest, DisallowByDISALLOWSidePacketSetToTrue) {
+  SetRunner(R"(
+        calculator: "GateCalculator"
+        input_side_packet: "DISALLOW:gating_stream"
+        input_stream: "test_input"
+        output_stream: "test_output"
+  )");
+  runner()->MutableSidePackets()->Tag(kDisallowTag) = Adopt(new bool(true));
+
+  constexpr int64 kTimestampValue0 = 42;
+  RunTimeStep(kTimestampValue0, true);
+  constexpr int64 kTimestampValue1 = 43;
+  RunTimeStep(kTimestampValue1, false);
+
+  const std::vector<Packet>& output = runner()->Outputs().Get("", 0).packets;
+  ASSERT_EQ(0, output.size());
+}
 
 TEST_F(GateCalculatorTest, Allow) {
   SetRunner(R"(

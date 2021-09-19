@@ -16,6 +16,7 @@
 
 #include <functional>
 
+#include "absl/container/node_hash_map.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -56,7 +57,7 @@ void TestWriteAndRead(Map& time_map) {
 
 // Tests writing, reading and erasing in a ShardedMap.
 TEST(ShardedMapTest, TestWriteAndRead) {
-  std::unordered_map<int64, int64> simple_map;
+  absl::node_hash_map<int64, int64> simple_map;
   TestWriteAndRead(simple_map);
   ShardedMap<int64, int64> safe_map(4999, 1);
   TestWriteAndRead(safe_map);
@@ -78,7 +79,7 @@ void TestParallelAccess(Map& time_map, int num_threads) {
   int64 kNumWrites = 1000;
   int64 kNumReads = 10;
 
-  ::mediapipe::ThreadPool pool(num_threads);
+  mediapipe::ThreadPool pool(num_threads);
   pool.StartWorkers();
   for (int i = 0; i < kNumTasks; ++i) {
     pool.Schedule([=, &time_map]() {
@@ -122,7 +123,7 @@ absl::Duration time(const std::function<void()>& f) {
 // With bazel build -c opt, the ShardedMap reduces CPU time by 60%.
 TEST(ShardedMapTest, TestParallelAccess) {
   absl::Duration simple_time = time([] {
-    std::unordered_map<int64, int64> simple_map;
+    absl::node_hash_map<int64, int64> simple_map;
     TestParallelAccess(simple_map, 1);
   });
   absl::Duration safe_time = time([] {

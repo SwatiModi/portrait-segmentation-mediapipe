@@ -17,7 +17,7 @@ load(
     "mediapipe_simple_subgraph",
 )
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:public"])
 
@@ -28,12 +28,10 @@ mediapipe_simple_subgraph(
     deps = [
         "//mediapipe/calculators/core:gate_calculator",
         "//mediapipe/calculators/core:split_vector_calculator",
-        "//mediapipe/calculators/image:image_cropping_calculator",
-        "//mediapipe/calculators/image:image_transformation_calculator",
-        "//mediapipe/calculators/tflite:tflite_converter_calculator",
-        "//mediapipe/calculators/tflite:tflite_inference_calculator",
-        "//mediapipe/calculators/tflite:tflite_tensors_to_floats_calculator",
-        "//mediapipe/calculators/tflite:tflite_tensors_to_landmarks_calculator",
+        "//mediapipe/calculators/tensor:image_to_tensor_calculator",
+        "//mediapipe/calculators/tensor:inference_calculator",
+        "//mediapipe/calculators/tensor:tensors_to_floats_calculator",
+        "//mediapipe/calculators/tensor:tensors_to_landmarks_calculator",
         "//mediapipe/calculators/util:landmark_projection_calculator",
         "//mediapipe/calculators/util:thresholding_calculator",
     ],
@@ -46,12 +44,10 @@ mediapipe_simple_subgraph(
     deps = [
         "//mediapipe/calculators/core:gate_calculator",
         "//mediapipe/calculators/core:split_vector_calculator",
-        "//mediapipe/calculators/image:image_cropping_calculator",
-        "//mediapipe/calculators/image:image_transformation_calculator",
-        "//mediapipe/calculators/tflite:tflite_converter_calculator",
-        "//mediapipe/calculators/tflite:tflite_inference_calculator",
-        "//mediapipe/calculators/tflite:tflite_tensors_to_floats_calculator",
-        "//mediapipe/calculators/tflite:tflite_tensors_to_landmarks_calculator",
+        "//mediapipe/calculators/tensor:image_to_tensor_calculator",
+        "//mediapipe/calculators/tensor:inference_calculator",
+        "//mediapipe/calculators/tensor:tensors_to_floats_calculator",
+        "//mediapipe/calculators/tensor:tensors_to_landmarks_calculator",
         "//mediapipe/calculators/util:landmark_projection_calculator",
         "//mediapipe/calculators/util:thresholding_calculator",
     ],
@@ -67,14 +63,14 @@ mediapipe_simple_subgraph(
         ":face_landmark_landmarks_to_roi",
         "//mediapipe/calculators/core:begin_loop_calculator",
         "//mediapipe/calculators/core:clip_vector_size_calculator",
+        "//mediapipe/calculators/core:constant_side_packet_calculator",
         "//mediapipe/calculators/core:end_loop_calculator",
         "//mediapipe/calculators/core:gate_calculator",
-        "//mediapipe/calculators/core:merge_calculator",
         "//mediapipe/calculators/core:previous_loopback_calculator",
         "//mediapipe/calculators/image:image_properties_calculator",
         "//mediapipe/calculators/util:association_norm_rect_calculator",
         "//mediapipe/calculators/util:collection_has_min_size_calculator",
-        "//mediapipe/modules/face_detection:face_detection_front_cpu",
+        "//mediapipe/modules/face_detection:face_detection_short_range_cpu",
     ],
 )
 
@@ -88,14 +84,36 @@ mediapipe_simple_subgraph(
         ":face_landmark_landmarks_to_roi",
         "//mediapipe/calculators/core:begin_loop_calculator",
         "//mediapipe/calculators/core:clip_vector_size_calculator",
+        "//mediapipe/calculators/core:constant_side_packet_calculator",
         "//mediapipe/calculators/core:end_loop_calculator",
         "//mediapipe/calculators/core:gate_calculator",
-        "//mediapipe/calculators/core:merge_calculator",
         "//mediapipe/calculators/core:previous_loopback_calculator",
         "//mediapipe/calculators/image:image_properties_calculator",
         "//mediapipe/calculators/util:association_norm_rect_calculator",
         "//mediapipe/calculators/util:collection_has_min_size_calculator",
-        "//mediapipe/modules/face_detection:face_detection_front_gpu",
+        "//mediapipe/modules/face_detection:face_detection_short_range_gpu",
+    ],
+)
+
+mediapipe_simple_subgraph(
+    name = "face_landmark_front_cpu_image",
+    graph = "face_landmark_front_cpu_image.pbtxt",
+    register_as = "FaceLandmarkFrontCpuImage",
+    deps = [
+        ":face_landmark_front_cpu",
+        "//mediapipe/calculators/image:image_transformation_calculator",
+        "//mediapipe/calculators/util:from_image_calculator",
+    ],
+)
+
+mediapipe_simple_subgraph(
+    name = "face_landmark_front_gpu_image",
+    graph = "face_landmark_front_gpu_image.pbtxt",
+    register_as = "FaceLandmarkFrontGpuImage",
+    deps = [
+        ":face_landmark_front_gpu",
+        "//mediapipe/calculators/image:image_transformation_calculator",
+        "//mediapipe/calculators/util:from_image_calculator",
     ],
 )
 

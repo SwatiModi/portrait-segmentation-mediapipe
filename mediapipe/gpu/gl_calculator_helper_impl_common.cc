@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <memory>
+
+#include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/gpu/gl_calculator_helper_impl.h"
 #include "mediapipe/gpu/gpu_buffer_format.h"
 #include "mediapipe/gpu/gpu_shared_data_internal.h"
@@ -42,7 +45,7 @@ GlCalculatorHelperImpl::~GlCalculatorHelperImpl() {
           glDeleteFramebuffers(1, &framebuffer_);
           framebuffer_ = 0;
         }
-        return ::mediapipe::OkStatus();
+        return absl::OkStatus();
       },
       /*calculator_context=*/nullptr)
       .IgnoreError();
@@ -50,8 +53,8 @@ GlCalculatorHelperImpl::~GlCalculatorHelperImpl() {
 
 GlContext& GlCalculatorHelperImpl::GetGlContext() const { return *gl_context_; }
 
-::mediapipe::Status GlCalculatorHelperImpl::RunInGlContext(
-    std::function<::mediapipe::Status(void)> gl_func,
+absl::Status GlCalculatorHelperImpl::RunInGlContext(
+    std::function<absl::Status(void)> gl_func,
     CalculatorContext* calculator_context) {
   if (calculator_context) {
     return gl_context_->Run(std::move(gl_func), calculator_context->NodeId(),
@@ -161,12 +164,14 @@ GlTexture GlCalculatorHelperImpl::MapGlTextureBuffer(
   texture.target_ = texture_buffer->target_;
   texture.name_ = texture_buffer->name_;
 
-  // TODO: do the params need to be reset here??
-  glBindTexture(texture.target(), texture.name());
-  GlTextureInfo info =
-      GlTextureInfoForGpuBufferFormat(texture_buffer->format(), texture.plane_);
-  SetStandardTextureParams(texture.target(), info.gl_internal_format);
-  glBindTexture(texture.target(), 0);
+  if (texture_buffer->format() != GpuBufferFormat::kUnknown) {
+    // TODO: do the params need to be reset here??
+    glBindTexture(texture.target(), texture.name());
+    GlTextureInfo info = GlTextureInfoForGpuBufferFormat(
+        texture_buffer->format(), texture.plane_, GetGlVersion());
+    SetStandardTextureParams(texture.target(), info.gl_internal_format);
+    glBindTexture(texture.target(), 0);
+  }
 
   return texture;
 }
@@ -174,15 +179,16 @@ GlTexture GlCalculatorHelperImpl::MapGlTextureBuffer(
 GlTextureBufferSharedPtr GlCalculatorHelperImpl::MakeGlTextureBuffer(
     const ImageFrame& image_frame) {
   CHECK(gl_context_->IsCurrent());
-  auto buffer = GlTextureBuffer::Create(
-      image_frame.Width(), image_frame.Height(),
-      GpuBufferFormatForImageFormat(image_frame.Format()),
-      image_frame.PixelData());
-  glBindTexture(GL_TEXTURE_2D, buffer->name_);
-  GlTextureInfo info =
-      GlTextureInfoForGpuBufferFormat(buffer->format_, /*plane=*/0);
-  SetStandardTextureParams(buffer->target_, info.gl_internal_format);
-  glBindTexture(GL_TEXTURE_2D, 0);
+
+  auto buffer = GlTextureBuffer::Create(image_frame);
+
+  if (buffer->format_ != GpuBufferFormat::kUnknown) {
+    glBindTexture(GL_TEXTURE_2D, buffer->name_);
+    GlTextureInfo info = GlTextureInfoForGpuBufferFormat(
+        buffer->format_, /*plane=*/0, GetGlVersion());
+    SetStandardTextureParams(buffer->target_, info.gl_internal_format);
+    glBindTexture(GL_TEXTURE_2D, 0);
+  }
 
   return buffer;
 }

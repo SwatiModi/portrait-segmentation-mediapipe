@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:private"])
 
@@ -36,9 +36,8 @@ android_binary(
     name = "facedetectiongpu",
     srcs = glob(["*.java"]),
     assets = [
-        "//mediapipe/graphs/face_detection:mobile_gpu.binarypb",
-        "//mediapipe/models:face_detection_front.tflite",
-        "//mediapipe/models:face_detection_front_labelmap.txt",
+        "//mediapipe/graphs/face_detection:face_detection_mobile_gpu.binarypb",
+        "//mediapipe/modules/face_detection:face_detection_short_range.tflite",
     ],
     assets_dir = "",
     manifest = "//mediapipe/examples/android/src/java/com/google/mediapipe/apps/basic:AndroidManifest.xml",
@@ -47,10 +46,11 @@ android_binary(
         "appName": "Face Detection",
         "mainActivity": "com.google.mediapipe.apps.basic.MainActivity",
         "cameraFacingFront": "True",
-        "binaryGraphName": "mobile_gpu.binarypb",
+        "binaryGraphName": "face_detection_mobile_gpu.binarypb",
         "inputVideoStreamName": "input_video",
         "outputVideoStreamName": "output_video",
         "flipFramesVertically": "True",
+        "converterNumBuffers": "2",
     },
     multidex = "native",
     deps = [

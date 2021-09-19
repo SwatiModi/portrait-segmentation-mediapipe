@@ -25,6 +25,9 @@
 
 namespace mediapipe {
 
+constexpr char kLetterboxPaddingTag[] = "LETTERBOX_PADDING";
+constexpr char kDetectionsTag[] = "DETECTIONS";
+
 LocationData CreateRelativeLocationData(double xmin, double ymin, double width,
                                         double height) {
   LocationData location_data;
@@ -57,12 +60,12 @@ Detection CreateDetection(const std::vector<std::string>& labels,
 }
 
 CalculatorGraphConfig::Node GetDefaultNode() {
-  return ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+  return ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
     calculator: "DetectionLetterboxRemovalCalculator"
     input_stream: "DETECTIONS:detections"
     input_stream: "LETTERBOX_PADDING:letterbox_padding"
     output_stream: "DETECTIONS:adjusted_detections"
-  )");
+  )pb");
 }
 
 TEST(DetectionLetterboxRemovalCalculatorTest, PaddingLeftRight) {
@@ -76,19 +79,19 @@ TEST(DetectionLetterboxRemovalCalculatorTest, PaddingLeftRight) {
   detections->push_back(
       CreateDetection({label}, {}, {0.3f}, location_data, "feature_tag"));
   runner.MutableInputs()
-      ->Tag("DETECTIONS")
+      ->Tag(kDetectionsTag)
       .packets.push_back(
           Adopt(detections.release()).At(Timestamp::PostStream()));
 
   auto padding = absl::make_unique<std::array<float, 4>>(
       std::array<float, 4>{0.2f, 0.f, 0.3f, 0.f});
   runner.MutableInputs()
-      ->Tag("LETTERBOX_PADDING")
+      ->Tag(kLetterboxPaddingTag)
       .packets.push_back(Adopt(padding.release()).At(Timestamp::PostStream()));
 
   MP_ASSERT_OK(runner.Run()) << "Calculator execution failed.";
   const std::vector<Packet>& output =
-      runner.Outputs().Tag("DETECTIONS").packets;
+      runner.Outputs().Tag(kDetectionsTag).packets;
   ASSERT_EQ(1, output.size());
   const auto& output_detections = output[0].Get<std::vector<Detection>>();
 
@@ -124,19 +127,19 @@ TEST(DetectionLetterboxRemovalCalculatorTest, PaddingTopBottom) {
   detections->push_back(
       CreateDetection({label}, {}, {0.3f}, location_data, "feature_tag"));
   runner.MutableInputs()
-      ->Tag("DETECTIONS")
+      ->Tag(kDetectionsTag)
       .packets.push_back(
           Adopt(detections.release()).At(Timestamp::PostStream()));
 
   auto padding = absl::make_unique<std::array<float, 4>>(
       std::array<float, 4>{0.f, 0.2f, 0.f, 0.3f});
   runner.MutableInputs()
-      ->Tag("LETTERBOX_PADDING")
+      ->Tag(kLetterboxPaddingTag)
       .packets.push_back(Adopt(padding.release()).At(Timestamp::PostStream()));
 
   MP_ASSERT_OK(runner.Run()) << "Calculator execution failed.";
   const std::vector<Packet>& output =
-      runner.Outputs().Tag("DETECTIONS").packets;
+      runner.Outputs().Tag(kDetectionsTag).packets;
   ASSERT_EQ(1, output.size());
   const auto& output_detections = output[0].Get<std::vector<Detection>>();
 

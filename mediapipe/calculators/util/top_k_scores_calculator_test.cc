@@ -23,8 +23,12 @@
 
 namespace mediapipe {
 
+constexpr char kTopKScoresTag[] = "TOP_K_SCORES";
+constexpr char kTopKIndexesTag[] = "TOP_K_INDEXES";
+constexpr char kScoresTag[] = "SCORES";
+
 TEST(TopKScoresCalculatorTest, TestNodeConfig) {
-  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
     calculator: "TopKScoresCalculator"
     input_stream: "SCORES:score_vector"
     output_stream: "TOP_K_INDEXES:top_k_indexes"
@@ -32,7 +36,7 @@ TEST(TopKScoresCalculatorTest, TestNodeConfig) {
     options: {
       [mediapipe.TopKScoresCalculatorOptions.ext] {}
     }
-  )"));
+  )pb"));
 
   auto status = runner.Run();
   ASSERT_TRUE(!status.ok());
@@ -43,7 +47,7 @@ TEST(TopKScoresCalculatorTest, TestNodeConfig) {
 }
 
 TEST(TopKScoresCalculatorTest, TestTopKOnly) {
-  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
     calculator: "TopKScoresCalculator"
     input_stream: "SCORES:score_vector"
     output_stream: "TOP_K_INDEXES:top_k_indexes"
@@ -51,23 +55,25 @@ TEST(TopKScoresCalculatorTest, TestTopKOnly) {
     options: {
       [mediapipe.TopKScoresCalculatorOptions.ext] { top_k: 2 }
     }
-  )"));
+  )pb"));
 
   std::vector<float> score_vector{0.9, 0.2, 0.3, 1.0, 0.1};
 
-  runner.MutableInputs()->Tag("SCORES").packets.push_back(
-      MakePacket<std::vector<float>>(score_vector).At(Timestamp(0)));
+  runner.MutableInputs()
+      ->Tag(kScoresTag)
+      .packets.push_back(
+          MakePacket<std::vector<float>>(score_vector).At(Timestamp(0)));
 
   MP_ASSERT_OK(runner.Run());
   const std::vector<Packet>& indexes_outputs =
-      runner.Outputs().Tag("TOP_K_INDEXES").packets;
+      runner.Outputs().Tag(kTopKIndexesTag).packets;
   ASSERT_EQ(1, indexes_outputs.size());
   const auto& indexes = indexes_outputs[0].Get<std::vector<int>>();
   EXPECT_EQ(2, indexes.size());
   EXPECT_EQ(3, indexes[0]);
   EXPECT_EQ(0, indexes[1]);
   const std::vector<Packet>& scores_outputs =
-      runner.Outputs().Tag("TOP_K_SCORES").packets;
+      runner.Outputs().Tag(kTopKScoresTag).packets;
   ASSERT_EQ(1, scores_outputs.size());
   const auto& scores = scores_outputs[0].Get<std::vector<float>>();
   EXPECT_EQ(2, scores.size());
@@ -76,7 +82,7 @@ TEST(TopKScoresCalculatorTest, TestTopKOnly) {
 }
 
 TEST(TopKScoresCalculatorTest, TestThresholdOnly) {
-  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
     calculator: "TopKScoresCalculator"
     input_stream: "SCORES:score_vector"
     output_stream: "TOP_K_INDEXES:top_k_indexes"
@@ -84,16 +90,18 @@ TEST(TopKScoresCalculatorTest, TestThresholdOnly) {
     options: {
       [mediapipe.TopKScoresCalculatorOptions.ext] { threshold: 0.2 }
     }
-  )"));
+  )pb"));
 
   std::vector<float> score_vector{0.9, 0.2, 0.3, 1.0, 0.1};
 
-  runner.MutableInputs()->Tag("SCORES").packets.push_back(
-      MakePacket<std::vector<float>>(score_vector).At(Timestamp(0)));
+  runner.MutableInputs()
+      ->Tag(kScoresTag)
+      .packets.push_back(
+          MakePacket<std::vector<float>>(score_vector).At(Timestamp(0)));
 
   MP_ASSERT_OK(runner.Run());
   const std::vector<Packet>& indexes_outputs =
-      runner.Outputs().Tag("TOP_K_INDEXES").packets;
+      runner.Outputs().Tag(kTopKIndexesTag).packets;
   ASSERT_EQ(1, indexes_outputs.size());
   const auto& indexes = indexes_outputs[0].Get<std::vector<int>>();
   EXPECT_EQ(4, indexes.size());
@@ -102,7 +110,7 @@ TEST(TopKScoresCalculatorTest, TestThresholdOnly) {
   EXPECT_EQ(2, indexes[2]);
   EXPECT_EQ(1, indexes[3]);
   const std::vector<Packet>& scores_outputs =
-      runner.Outputs().Tag("TOP_K_SCORES").packets;
+      runner.Outputs().Tag(kTopKScoresTag).packets;
   ASSERT_EQ(1, scores_outputs.size());
   const auto& scores = scores_outputs[0].Get<std::vector<float>>();
   EXPECT_EQ(4, scores.size());
@@ -113,7 +121,7 @@ TEST(TopKScoresCalculatorTest, TestThresholdOnly) {
 }
 
 TEST(TopKScoresCalculatorTest, TestBothTopKAndThreshold) {
-  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"(
+  CalculatorRunner runner(ParseTextProtoOrDie<CalculatorGraphConfig::Node>(R"pb(
     calculator: "TopKScoresCalculator"
     input_stream: "SCORES:score_vector"
     output_stream: "TOP_K_INDEXES:top_k_indexes"
@@ -121,16 +129,18 @@ TEST(TopKScoresCalculatorTest, TestBothTopKAndThreshold) {
     options: {
       [mediapipe.TopKScoresCalculatorOptions.ext] { top_k: 4 threshold: 0.3 }
     }
-  )"));
+  )pb"));
 
   std::vector<float> score_vector{0.9, 0.2, 0.3, 1.0, 0.1};
 
-  runner.MutableInputs()->Tag("SCORES").packets.push_back(
-      MakePacket<std::vector<float>>(score_vector).At(Timestamp(0)));
+  runner.MutableInputs()
+      ->Tag(kScoresTag)
+      .packets.push_back(
+          MakePacket<std::vector<float>>(score_vector).At(Timestamp(0)));
 
   MP_ASSERT_OK(runner.Run());
   const std::vector<Packet>& indexes_outputs =
-      runner.Outputs().Tag("TOP_K_INDEXES").packets;
+      runner.Outputs().Tag(kTopKIndexesTag).packets;
   ASSERT_EQ(1, indexes_outputs.size());
   const auto& indexes = indexes_outputs[0].Get<std::vector<int>>();
   EXPECT_EQ(3, indexes.size());
@@ -138,7 +148,7 @@ TEST(TopKScoresCalculatorTest, TestBothTopKAndThreshold) {
   EXPECT_EQ(0, indexes[1]);
   EXPECT_EQ(2, indexes[2]);
   const std::vector<Packet>& scores_outputs =
-      runner.Outputs().Tag("TOP_K_SCORES").packets;
+      runner.Outputs().Tag(kTopKScoresTag).packets;
   ASSERT_EQ(1, scores_outputs.size());
   const auto& scores = scores_outputs[0].Get<std::vector<float>>();
   EXPECT_EQ(3, scores.size());

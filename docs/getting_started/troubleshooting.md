@@ -12,6 +12,134 @@ nav_order: 10
 {:toc}
 ---
 
+## Missing Python binary path
+
+The error message:
+
+```
+ERROR: An error occurred during the fetch of repository 'local_execution_config_python':
+  Traceback (most recent call last):
+       File "/sandbox_path/external/org_tensorflow/third_party/py/python_configure.bzl", line 208
+               get_python_bin(repository_ctx)
+    ...
+Repository command failed
+```
+
+usually indicates that Bazel fails to find the local Python binary. To solve
+this issue, please first find where the python binary is and then add
+`--action_env PYTHON_BIN_PATH=<path to python binary>` to the Bazel command. For
+example, you can switch to use the system default python3 binary by the
+following command:
+
+```
+bazel build -c opt \
+  --define MEDIAPIPE_DISABLE_GPU=1 \
+  --action_env PYTHON_BIN_PATH=$(which python3) \
+  mediapipe/examples/desktop/hello_world
+```
+
+## Missing necessary Python packages
+
+The error message:
+
+```
+ImportError: No module named numpy
+Is numpy installed?
+```
+
+usually indicates that certain Python packages are not installed. Please run
+`pip install` or `pip3 install` depending on your Python binary version to
+install those packages.
+
+## Fail to fetch remote dependency repositories
+
+The error message:
+
+```
+ERROR: An error occurred during the fetch of repository 'org_tensorflow':
+   java.io.IOException: Error downloading [https://mirror.bazel.build/github.com/tensorflow/tensorflow/archive/77e9ffb9b2bfb1a4f7056e62d84039626923e328.tar.gz, https://github.com/tensorflow/tensorflow/archive/77e9ffb9b2bfb1a4f7056e62d84039626923e328.tar.gz] to /sandbox_path/external/org_tensorflow/77e9ffb9b2bfb1a4f7056e62d84039626923e328.tar.gz: Tried to reconnect at offset 9,944,151 but server didn't support it
+
+or
+
+WARNING: Download from https://storage.googleapis.com/mirror.tensorflow.org/github.com/bazelbuild/rules_swift/releases/download/0.12.1/rules_swift.0.12.1.tar.gz failed: class java.net.ConnectException Connection timed out (Connection timed out)
+```
+
+usually indicates that Bazel fails to download necessary dependency repositories
+that MediaPipe needs. MedaiPipe has several dependency repositories that are
+hosted by Google sites. In some regions, you may need to set up a network proxy
+or use a VPN to access those resources. You may also need to append
+`--host_jvm_args "-DsocksProxyHost=<ip address> -DsocksProxyPort=<port number>"`
+to the Bazel command. See
+[this GitHub issue](https://github.com/google/mediapipe/issues/581#issuecomment-610356857)
+for more details.
+
+If you believe that it's not a network issue, another possibility is that some
+resources could be temporarily unavailable, please run `bazel clean --expunge`
+and retry it later. If it's still not working, please file a GitHub issue with
+the detailed error message.
+
+## Incorrect MediaPipe OpenCV config
+
+The error message:
+
+```
+error: undefined reference to 'cv::String::deallocate()'
+error: undefined reference to 'cv::String::allocate(unsigned long)'
+error: undefined reference to 'cv::VideoCapture::VideoCapture(cv::String const&)'
+...
+error: undefined reference to 'cv::putText(cv::InputOutputArray const&, cv::String const&, cv::Point, int, double, cv::Scalar, int, int, bool)'
+```
+
+usually indicates that OpenCV is not properly configured for MediaPipe. Please
+take a look at the "Install OpenCV and FFmpeg" sections in
+[Installation](./install.md) to see how to modify MediaPipe's WORKSPACE and
+linux_opencv/macos_opencv/windows_opencv.BUILD files for your local opencv
+libraries. [This GitHub issue](https://github.com/google/mediapipe/issues/666)
+may also help.
+
+## Python pip install failure
+
+The error message:
+
+```
+ERROR: Could not find a version that satisfies the requirement mediapipe
+ERROR: No matching distribution found for mediapipe
+```
+
+after running `pip install mediapipe` usually indicates that there is no qualified MediaPipe Python for your system.
+Please note that MediaPipe Python PyPI officially supports the **64-bit**
+version of Python 3.7 and above on the following OS:
+
+-   x86_64 Linux
+-   x86_64 macOS 10.15+
+-   amd64 Windows
+
+If the OS is currently supported and you still see this error, please make sure
+that both the Python and pip binary are for Python 3.7 and above. Otherwise,
+please consider building the MediaPipe Python package locally by following the
+instructions [here](python.md#building-mediapipe-python-package).
+
+## Python DLL load failure on Windows
+
+The error message:
+
+```
+ImportError: DLL load failed: The specified module could not be found
+```
+
+usually indicates that the local Windows system is missing Visual C++
+redistributable packages and/or Visual C++ runtime DLLs. This can be solved by
+either installing the official
+[vc_redist.x64.exe](https://support.microsoft.com/en-us/topic/the-latest-supported-visual-c-downloads-2647da03-1eea-4433-9aff-95f26a218cc0)
+or installing the "msvc-runtime" Python package by running
+
+```bash
+$ python -m pip install msvc-runtime
+```
+
+Please note that the "msvc-runtime" Python package is not released or maintained
+by Microsoft.
+
 ## Native method not found
 
 The error message:

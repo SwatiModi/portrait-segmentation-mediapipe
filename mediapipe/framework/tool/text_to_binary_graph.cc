@@ -19,19 +19,19 @@
 #include <fstream>
 #include <string>
 
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
 #include "mediapipe/framework/calculator.pb.h"
 #include "mediapipe/framework/port/advanced_proto_inc.h"
 #include "mediapipe/framework/port/canonical_errors.h"
-#include "mediapipe/framework/port/commandlineflags.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/framework/port/status.h"
 
-DEFINE_string(proto_source, "",
-              "The template source file containing CalculatorGraphConfig "
-              "protobuf text with inline template params.");
-DEFINE_string(
-    proto_output, "",
-    "An output template file in binary CalculatorGraphTemplate form.");
+ABSL_FLAG(std::string, proto_source, "",
+          "The template source file containing CalculatorGraphConfig "
+          "protobuf text with inline template params.");
+ABSL_FLAG(std::string, proto_output, "",
+          "An output template file in binary CalculatorGraphTemplate form.");
 
 #define EXIT_IF_ERROR(status) \
   if (!status.ok()) {         \
@@ -41,9 +41,8 @@ DEFINE_string(
 
 namespace mediapipe {
 
-mediapipe::Status ReadProto(proto_ns::io::ZeroCopyInputStream* in,
-                            bool read_text, const std::string& source,
-                            proto_ns::Message* result) {
+absl::Status ReadProto(proto_ns::io::ZeroCopyInputStream* in, bool read_text,
+                       const std::string& source, proto_ns::Message* result) {
   if (read_text) {
     RET_CHECK(proto_ns::TextFormat::Parse(in, result))
         << "could not parse text proto: " << source;
@@ -51,12 +50,12 @@ mediapipe::Status ReadProto(proto_ns::io::ZeroCopyInputStream* in,
     RET_CHECK(result->ParseFromZeroCopyStream(in))
         << "could not parse binary proto: " << source;
   }
-  return mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
-mediapipe::Status WriteProto(const proto_ns::Message& message, bool write_text,
-                             const std::string& dest,
-                             proto_ns::io::ZeroCopyOutputStream* out) {
+absl::Status WriteProto(const proto_ns::Message& message, bool write_text,
+                        const std::string& dest,
+                        proto_ns::io::ZeroCopyOutputStream* out) {
   if (write_text) {
     RET_CHECK(proto_ns::TextFormat::Print(message, out))
         << "could not write text proto to: " << dest;
@@ -64,21 +63,21 @@ mediapipe::Status WriteProto(const proto_ns::Message& message, bool write_text,
     RET_CHECK(message.SerializeToZeroCopyStream(out))
         << "could not write binary proto to: " << dest;
   }
-  return mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 // Read a proto from a text or a binary file.
-mediapipe::Status ReadFile(const std::string& proto_source, bool read_text,
-                           proto_ns::Message* result) {
+absl::Status ReadFile(const std::string& proto_source, bool read_text,
+                      proto_ns::Message* result) {
   std::ifstream ifs(proto_source);
   proto_ns::io::IstreamInputStream in(&ifs);
   MP_RETURN_IF_ERROR(ReadProto(&in, read_text, proto_source, result));
-  return mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 // Write a proto to a text or a binary file.
-mediapipe::Status WriteFile(const std::string& proto_output, bool write_text,
-                            const proto_ns::Message& message) {
+absl::Status WriteFile(const std::string& proto_output, bool write_text,
+                       const proto_ns::Message& message) {
   std::ios_base::openmode mode = std::ios_base::out | std::ios_base::trunc;
   if (!write_text) {
     mode |= std::ios_base::binary;
@@ -86,30 +85,32 @@ mediapipe::Status WriteFile(const std::string& proto_output, bool write_text,
   std::ofstream ofs(proto_output, mode);
   proto_ns::io::OstreamOutputStream out(&ofs);
   MP_RETURN_IF_ERROR(WriteProto(message, write_text, proto_output, &out));
-  return mediapipe::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace mediapipe
 
 int main(int argc, char** argv) {
   google::InitGoogleLogging(argv[0]);
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  absl::ParseCommandLine(argc, argv);
 
   // Validate command line options.
-  mediapipe::Status status;
-  if (FLAGS_proto_source.empty()) {
+  absl::Status status;
+  if (absl::GetFlag(FLAGS_proto_source).empty()) {
     status.Update(
-        ::mediapipe::InvalidArgumentError("--proto_source must be specified"));
+        absl::InvalidArgumentError("--proto_source must be specified"));
   }
-  if (FLAGS_proto_output.empty()) {
+  if (absl::GetFlag(FLAGS_proto_output).empty()) {
     status.Update(
-        ::mediapipe::InvalidArgumentError("--proto_output must be specified"));
+        absl::InvalidArgumentError("--proto_output must be specified"));
   }
   if (!status.ok()) {
     return EXIT_FAILURE;
   }
   mediapipe::CalculatorGraphConfig config;
-  EXIT_IF_ERROR(mediapipe::ReadFile(FLAGS_proto_source, true, &config));
-  EXIT_IF_ERROR(mediapipe::WriteFile(FLAGS_proto_output, false, config));
+  EXIT_IF_ERROR(
+      mediapipe::ReadFile(absl::GetFlag(FLAGS_proto_source), true, &config));
+  EXIT_IF_ERROR(
+      mediapipe::WriteFile(absl::GetFlag(FLAGS_proto_output), false, config));
   return EXIT_SUCCESS;
 }

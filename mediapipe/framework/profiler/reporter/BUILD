@@ -13,7 +13,7 @@
 # limitations under the License.
 #
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 cc_library(
     name = "reporter_lib",
@@ -31,7 +31,6 @@ cc_library(
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework:calculator_profile_cc_proto",
         "//mediapipe/framework/port:advanced_proto",
-        "//mediapipe/framework/port:commandlineflags",
         "//mediapipe/framework/port:file_helpers",
         "//mediapipe/framework/port:parse_text_proto",
         "//mediapipe/framework/port:re2",
@@ -39,6 +38,7 @@ cc_library(
         "//mediapipe/framework/port:status",
         "//mediapipe/framework/port:statusor",
         "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
@@ -51,7 +51,6 @@ cc_binary(
     deps = [
         ":reporter_lib",
         "//mediapipe/framework/port:advanced_proto",
-        "//mediapipe/framework/port:commandlineflags",
         "//mediapipe/framework/port:file_helpers",
         "//mediapipe/framework/port:status",
         "@com_google_absl//absl/container:btree",

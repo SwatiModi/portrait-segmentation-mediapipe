@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "absl/flags/flag.h"
 #include "absl/strings/str_replace.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session.h"
 #include "mediapipe/calculators/tensorflow/tensorflow_session_from_saved_model_generator.pb.h"
@@ -25,12 +26,16 @@
 #include "mediapipe/framework/port/status_matchers.h"
 #include "mediapipe/framework/tool/tag_map_helper.h"
 #include "mediapipe/framework/tool/validate_type.h"
+#include "tensorflow/core/framework/device_attributes.pb.h"
 
 namespace mediapipe {
 
 namespace {
 
 namespace tf = ::tensorflow;
+
+constexpr char kStringSavedModelPathTag[] = "STRING_SAVED_MODEL_PATH";
+constexpr char kSessionTag[] = "SESSION";
 
 std::string GetSavedModelDir() {
   std::string out_path =
@@ -65,15 +70,15 @@ class TensorFlowSessionFromSavedModelGeneratorTest : public ::testing::Test {
 
 TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
        CreatesPacketWithGraphAndBindings) {
-  PacketSet input_side_packets(tool::CreateTagMap({}).ValueOrDie());
+  PacketSet input_side_packets(tool::CreateTagMap({}).value());
   PacketSet output_side_packets(
-      tool::CreateTagMap({"SESSION:session"}).ValueOrDie());
-  ::mediapipe::Status run_status = tool::RunGenerateAndValidateTypes(
+      tool::CreateTagMap({"SESSION:session"}).value());
+  absl::Status run_status = tool::RunGenerateAndValidateTypes(
       "TensorFlowSessionFromSavedModelGenerator", extendable_options_,
       input_side_packets, &output_side_packets);
   MP_EXPECT_OK(run_status) << run_status.message();
   const TensorFlowSession& session =
-      output_side_packets.Tag("SESSION").Get<TensorFlowSession>();
+      output_side_packets.Tag(kSessionTag).Get<TensorFlowSession>();
   // Session must be set.
   ASSERT_NE(session.session, nullptr);
 
@@ -104,18 +109,17 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
        CreateSessionFromSidePacket) {
   generator_options_->clear_saved_model_path();
   PacketSet input_side_packets(
-      tool::CreateTagMap({"STRING_SAVED_MODEL_PATH:saved_model_dir"})
-          .ValueOrDie());
-  input_side_packets.Tag("STRING_SAVED_MODEL_PATH") =
+      tool::CreateTagMap({"STRING_SAVED_MODEL_PATH:saved_model_dir"}).value());
+  input_side_packets.Tag(kStringSavedModelPathTag) =
       Adopt(new std::string(GetSavedModelDir()));
   PacketSet output_side_packets(
-      tool::CreateTagMap({"SESSION:session"}).ValueOrDie());
-  ::mediapipe::Status run_status = tool::RunGenerateAndValidateTypes(
+      tool::CreateTagMap({"SESSION:session"}).value());
+  absl::Status run_status = tool::RunGenerateAndValidateTypes(
       "TensorFlowSessionFromSavedModelGenerator", extendable_options_,
       input_side_packets, &output_side_packets);
   MP_EXPECT_OK(run_status) << run_status.message();
   const TensorFlowSession& session =
-      output_side_packets.Tag("SESSION").Get<TensorFlowSession>();
+      output_side_packets.Tag(kSessionTag).Get<TensorFlowSession>();
   // Session must be set.
   ASSERT_NE(session.session, nullptr);
 }
@@ -125,7 +129,7 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
 TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
        ProducesPacketUsableByTensorFlowInferenceCalculator) {
   CalculatorGraphConfig graph_config =
-      ::mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(
+      mediapipe::ParseTextProtoOrDie<CalculatorGraphConfig>(
           absl::Substitute(R"(
       node {
         calculator: "TensorFlowInferenceCalculator"
@@ -158,7 +162,7 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
   StatusOrPoller status_or_poller =
       graph.AddOutputStreamPoller("multiplied_tensor");
   ASSERT_TRUE(status_or_poller.ok());
-  OutputStreamPoller poller = std::move(status_or_poller.ValueOrDie());
+  OutputStreamPoller poller = std::move(status_or_poller.value());
 
   MP_ASSERT_OK(graph.StartRun({}));
   MP_ASSERT_OK(graph.AddPacketToInputStream(
@@ -183,17 +187,41 @@ TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
       std::string(file::SplitPath(GetSavedModelDir()).first));
   generator_options_->set_load_latest_model(true);
 
-  PacketSet input_side_packets(tool::CreateTagMap({}).ValueOrDie());
+  PacketSet input_side_packets(tool::CreateTagMap({}).value());
   PacketSet output_side_packets(
-      tool::CreateTagMap({"SESSION:session"}).ValueOrDie());
-  ::mediapipe::Status run_status = tool::RunGenerateAndValidateTypes(
+      tool::CreateTagMap({"SESSION:session"}).value());
+  absl::Status run_status = tool::RunGenerateAndValidateTypes(
       "TensorFlowSessionFromSavedModelGenerator", extendable_options_,
       input_side_packets, &output_side_packets);
   MP_EXPECT_OK(run_status) << run_status.message();
   const TensorFlowSession& session =
-      output_side_packets.Tag("SESSION").Get<TensorFlowSession>();
+      output_side_packets.Tag(kSessionTag).Get<TensorFlowSession>();
   // Session must be set.
   ASSERT_NE(session.session, nullptr);
+}
+
+TEST_F(TensorFlowSessionFromSavedModelGeneratorTest,
+       ConfiguresSessionGivenConfig) {
+  generator_options_->set_saved_model_path(
+      std::string(file::SplitPath(GetSavedModelDir()).first));
+  generator_options_->set_load_latest_model(true);
+  generator_options_->mutable_session_config()->mutable_device_count()->insert(
+      {"CPU", 10});
+
+  PacketSet input_side_packets(tool::CreateTagMap({}).value());
+  PacketSet output_side_packets(
+      tool::CreateTagMap({"SESSION:session"}).value());
+  absl::Status run_status = tool::RunGenerateAndValidateTypes(
+      "TensorFlowSessionFromSavedModelGenerator", extendable_options_,
+      input_side_packets, &output_side_packets);
+  MP_EXPECT_OK(run_status) << run_status.message();
+  const TensorFlowSession& session =
+      output_side_packets.Tag(kSessionTag).Get<TensorFlowSession>();
+  // Session must be set.
+  ASSERT_NE(session.session, nullptr);
+  std::vector<tensorflow::DeviceAttributes> devices;
+  ASSERT_EQ(session.session->ListDevices(&devices), tensorflow::Status::OK());
+  EXPECT_THAT(devices.size(), 10);
 }
 
 }  // namespace

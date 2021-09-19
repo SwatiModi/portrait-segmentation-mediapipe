@@ -194,9 +194,8 @@ message ProfilerConfig {
   // to be appended to the TraceBuffer.
   int64 trace_log_margin_usec = 12;
 
-  // False specifies an event for each calculator invocation.
-  // True specifies a separate event for each start and finish time.
-  bool trace_log_duration_events = 13;
+  // Deprecated, replaced by trace_log_instant_events.
+  bool trace_log_duration_events = 13 [deprecated = true];
 
   // The number of trace log intervals per file. The total log duration is:
   // trace_log_interval_usec * trace_log_file_count * trace_log_interval_count.
@@ -209,6 +208,13 @@ message ProfilerConfig {
 
   // If true, tracer timing events are recorded and reported.
   bool trace_enabled = 16;
+
+  // False specifies an event for each calculator invocation.
+  // True specifies a separate event for each start and finish time.
+  bool trace_log_instant_events = 17;
+
+  // Limits calculator-profile histograms to a subset of calculators.
+  string calculator_filter = 18;
 }
 
 // Describes the topology and function of a MediaPipe Graph.  The graph of
@@ -315,6 +321,8 @@ message CalculatorGraphConfig {
     // The maximum number of invocations that can be executed in parallel.
     // If not specified, the limit is one invocation.
     int32 max_in_flight = 16;
+    // Defines an option value for this Node from graph options or packets.
+    repeated string option_value = 17;
     // DEPRECATED: For backwards compatibility we allow users to
     // specify the old name for "input_side_packet" in proto configs.
     // These are automatically converted to input_side_packets during
@@ -348,7 +356,7 @@ message CalculatorGraphConfig {
   int32 num_threads = 8;
   // Configs for StatusHandlers that will be called after each call to
   // Run() on the graph.  StatusHandlers take zero or more input side
-  // packets and the ::util::Status returned by a graph run.  For example,
+  // packets and the absl::Status returned by a graph run.  For example,
   // a StatusHandler could store information about graph failures and
   // their causes for later monitoring.  Note that graph failures during
   // initialization may cause required input side packets (created by a
@@ -419,6 +427,9 @@ message CalculatorGraphConfig {
   // the graph config.
   string type = 20;
 
-  // Can be used for annotating a graph.
+  // The types and default values for graph options, in proto2 syntax.
   MediaPipeOptions options = 1001;
+
+  // The types and default values for graph options, in proto3 syntax.
+  repeated google.protobuf.Any graph_options = 1002;
 }

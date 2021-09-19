@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/flags/flag.h"
 #include "absl/strings/str_split.h"
 #include "mediapipe/examples/desktop/autoflip/autoflip_messages.pb.h"
 #include "mediapipe/examples/desktop/autoflip/quality/focus_point.pb.h"

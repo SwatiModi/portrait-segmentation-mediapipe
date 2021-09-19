@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 package(default_visibility = ["//visibility:private"])
 
@@ -37,10 +37,9 @@ android_binary(
     srcs = glob(["*.java"]),
     assets = [
         "//mediapipe/graphs/hand_tracking:hand_tracking_mobile_gpu.binarypb",
-        "//mediapipe/models:handedness.txt",
-        "//mediapipe/models:hand_landmark.tflite",
-        "//mediapipe/models:palm_detection.tflite",
-        "//mediapipe/models:palm_detection_labelmap.txt",
+        "//mediapipe/modules/hand_landmark:handedness.txt",
+        "//mediapipe/modules/hand_landmark:hand_landmark.tflite",
+        "//mediapipe/modules/palm_detection:palm_detection.tflite",
     ],
     assets_dir = "",
     manifest = "//mediapipe/examples/android/src/java/com/google/mediapipe/apps/basic:AndroidManifest.xml",
@@ -53,6 +52,7 @@ android_binary(
         "inputVideoStreamName": "input_video",
         "outputVideoStreamName": "output_video",
         "flipFramesVertically": "True",
+        "converterNumBuffers": "2",
     },
     multidex = "native",
     deps = [

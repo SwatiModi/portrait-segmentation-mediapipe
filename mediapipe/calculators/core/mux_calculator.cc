@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "mediapipe/framework/api2/node.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/port/ret_check.h"
 
 namespace mediapipe {
+namespace api2 {
 
 // A Calculator that selects an input stream from "INPUT:0", "INPUT:1", ...,
 // using the integer value (0, 1, ...) in the packet on the "SELECT" input
@@ -23,55 +25,32 @@ namespace mediapipe {
 // output stream.
 //
 // Note that this calculator defaults to use MuxInputStreamHandler, which is
-// required for this calculator.
-class MuxCalculator : public CalculatorBase {
+// required for this calculator. However, it can be overridden to work with
+// other InputStreamHandlers. Check out the unit tests on for an example usage
+// with DefaultInputStreamHandler.
+// TODO: why would you need to use DefaultISH? Perhaps b/167596925?
+class MuxCalculator : public Node {
  public:
-  static ::mediapipe::Status GetContract(CalculatorContract* cc) {
-    cc->Inputs().Tag("SELECT").Set<int>();
-    CollectionItemId data_input_id = cc->Inputs().BeginId("INPUT");
-    PacketType* data_input0 = &cc->Inputs().Get(data_input_id);
-    data_input0->SetAny();
-    ++data_input_id;
-    for (; data_input_id < cc->Inputs().EndId("INPUT"); ++data_input_id) {
-      cc->Inputs().Get(data_input_id).SetSameAs(data_input0);
+  static constexpr Input<int>::SideFallback kSelect{"SELECT"};
+  // TODO: this currently sets them all to Any independently, instead
+  // of the first being Any and the others being SameAs.
+  static constexpr Input<AnyType>::Multiple kIn{"INPUT"};
+  static constexpr Output<SameType<kIn>> kOut{"OUTPUT"};
+
+  MEDIAPIPE_NODE_CONTRACT(kSelect, kIn, kOut,
+                          StreamHandler("MuxInputStreamHandler"));
+
+  absl::Status Process(CalculatorContext* cc) final {
+    int select = *kSelect(cc);
+    RET_CHECK(0 <= select && select < kIn(cc).Count());
+    if (!kIn(cc)[select].IsEmpty()) {
+      kOut(cc).Send(kIn(cc)[select].packet());
     }
-    RET_CHECK_EQ(cc->Outputs().NumEntries(), 1);
-    cc->Outputs().Tag("OUTPUT").SetSameAs(data_input0);
-
-    // Assign this calculator's default InputStreamHandler.
-    cc->SetInputStreamHandler("MuxInputStreamHandler");
-    MediaPipeOptions options;
-    cc->SetInputStreamHandlerOptions(options);
-
-    return ::mediapipe::OkStatus();
+    return absl::OkStatus();
   }
-
-  ::mediapipe::Status Open(CalculatorContext* cc) final {
-    select_input_ = cc->Inputs().GetId("SELECT", 0);
-    data_input_base_ = cc->Inputs().GetId("INPUT", 0);
-    num_data_inputs_ = cc->Inputs().NumEntries("INPUT");
-    output_ = cc->Outputs().GetId("OUTPUT", 0);
-    cc->SetOffset(TimestampDiff(0));
-    return ::mediapipe::OkStatus();
-  }
-
-  ::mediapipe::Status Process(CalculatorContext* cc) final {
-    int select = cc->Inputs().Get(select_input_).Get<int>();
-    RET_CHECK(0 <= select && select < num_data_inputs_);
-    if (!cc->Inputs().Get(data_input_base_ + select).IsEmpty()) {
-      cc->Outputs().Get(output_).AddPacket(
-          cc->Inputs().Get(data_input_base_ + select).Value());
-    }
-    return ::mediapipe::OkStatus();
-  }
-
- private:
-  CollectionItemId select_input_;
-  CollectionItemId data_input_base_;
-  int num_data_inputs_ = 0;
-  CollectionItemId output_;
 };
 
-REGISTER_CALCULATOR(MuxCalculator);
+MEDIAPIPE_REGISTER_NODE(MuxCalculator);
 
+}  // namespace api2
 }  // namespace mediapipe

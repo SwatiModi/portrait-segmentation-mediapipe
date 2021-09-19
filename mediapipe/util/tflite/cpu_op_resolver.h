@@ -19,13 +19,18 @@
 
 namespace mediapipe {
 
-// This OpResolver is used for supporting the following ops on CPU.:
+// This function registers the CPU implementations for following custom ops:
 // "Convolution2DTransposeBias"
 // "MaxPoolArgmax"
 // "MaxUnpooling"
-class CpuOpResolver : public tflite::ops::builtin::BuiltinOpResolver {
+extern "C" void MediaPipe_RegisterTfLiteOpResolver(tflite::MutableOpResolver*);
+
+// This resolver is used for the custom ops introduced by
+// `MediaPipe_RegisterTfLiteOpResolver` (see above).
+class CpuOpResolver
+    : public tflite::ops::builtin::BuiltinOpResolverWithoutDefaultDelegates {
  public:
-  CpuOpResolver();
+  CpuOpResolver() { MediaPipe_RegisterTfLiteOpResolver(this); }
 };
 
 }  // namespace mediapipe
